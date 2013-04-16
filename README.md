@@ -1,7 +1,7 @@
 xmem2
 =====
 
-xmem compatable library with autosize features.
+xmem compatible library with autosize features.
 
 Supports both RuggedCircuits RAM expansions automatically.
 Supports Andy Brown's RAM expansion too.
