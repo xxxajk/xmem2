@@ -30,14 +30,7 @@
  *       (thanks to Gene Reeves).
  *
  */
-#include <avr/io.h>
 #include "xmem.h"
-
-#if defined(ARDUINO) && ARDUINO >=100
-#include "Arduino.h"
-#else
-#include <WProgram.h>
-#endif
 
 // Select which shield you are using, Andy Brown's or the Rugged Circuits QuadRAM Shield.
 // Only uncomment one of the two lines below.
@@ -74,13 +67,27 @@ namespace xmem {
          * Note that 256 banks is not possible due to the limits of uint8_t.
          * However this code is future-proof for very large external RAM.
          */
-        uint8_t Autosize() {
+        uint8_t Autosize(bool stackInXmem_) {
                 uint8_t banks = 0;
+                if (stackInXmem_) {
+                        totalBanks = 255;
+                        setMemoryBank(1, false);
+                        setMemoryBank(0, false);
+                        totalBanks = 0;
+                        volatile uint8_t *ptr = reinterpret_cast<uint8_t *>(0x2212);
+                        volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(0x2221);
+                        *ptr = 0x55;
+                        *ptr2 = 0xAA;
+                        *ptr = 0xAA;
+                        *ptr2 = 0x55;
+                        if (*ptr != 0xAA && *ptr2 != 0x55) return 0;
+                        totalBanks = 1;
+                        return 1;
+                }
                 totalBanks = 255; // This allows us to scan
                 setMemoryBank(1, false);
-#if defined(EXT_RAM)
-                volatile uint8_t *ptr = reinterpret_cast<uint8_t *> (0x2212);
-                volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *> (0x2221);
+                volatile uint8_t *ptr = reinterpret_cast<uint8_t *>(0x2212);
+                volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(0x2221);
                 do {
                         setMemoryBank(banks, false);
                         *ptr = 0x55;
@@ -89,7 +96,7 @@ namespace xmem {
                         *ptr2 = 0x55;
 
                         if (*ptr != 0xAA && *ptr2 != 0x55) break;
-                        if(banks != 0) {
+                        if (banks != 0) {
                                 setMemoryBank(0, false);
                                 *ptr = banks;
                                 *ptr2 = banks;
@@ -99,7 +106,6 @@ namespace xmem {
                         banks++;
                         // if(!banks) what do we do here for 256 or more?!
                 } while (banks);
-#endif
                 return banks;
         }
 
@@ -113,8 +119,7 @@ namespace xmem {
         /*
          * Initial setup. You must call this once
          */
-
-        void begin(bool heapInXmem_) {
+        void begin(bool heapInXmem_, bool stackInXmem) {
 
                 totalBanks = 0;
 
@@ -145,14 +150,14 @@ namespace xmem {
 #endif
 
                 // Auto size RAM
-                totalBanks = Autosize();
+                totalBanks = Autosize(stackInXmem);
                 // initialize the heap states
 
                 if (totalBanks > 0) {
                         if (heapInXmem_) {
-                                __malloc_heap_end = static_cast<char *> (XMEM_END);
-                                __malloc_heap_start = static_cast<char *> (XMEM_START);
-                                __brkval = static_cast<char *> (XMEM_START);
+                                __malloc_heap_end = static_cast<char *>(XMEM_END);
+                                __malloc_heap_start = static_cast<char *>(XMEM_START);
+                                __brkval = static_cast<char *>(XMEM_START);
                         }
 
                         for (bank = 0; bank < totalBanks; bank++)
@@ -165,12 +170,17 @@ namespace xmem {
 #endif
         }
 
+        void begin(bool heapInXmem_) {
+                begin(heapInXmem_, false);
+        }
+
+
         /*
          * Set the memory bank
          */
 
         void setMemoryBank(uint8_t bank_, bool switchHeap_) {
-                if (totalBanks == 0) return;
+                if (totalBanks < 2) return;
 
 #if defined(EXT_RAM)
                 // check
@@ -220,7 +230,7 @@ namespace xmem {
          */
 
         void saveHeap(uint8_t bank_) {
-                if (totalBanks == 0) return;
+                if (totalBanks < 2) return;
 #if defined(EXT_RAM)
                 bankHeapStates[bank_].__malloc_heap_start = __malloc_heap_start;
                 bankHeapStates[bank_].__malloc_heap_end = __malloc_heap_end;
@@ -234,7 +244,7 @@ namespace xmem {
          */
 
         void restoreHeap(uint8_t bank_) {
-                if (totalBanks == 0) return;
+                if (totalBanks < 2) return;
 #if defined(EXT_RAM)
                 __malloc_heap_start = bankHeapStates[bank_].__malloc_heap_start;
                 __malloc_heap_end = bankHeapStates[bank_].__malloc_heap_end;
@@ -253,7 +263,7 @@ namespace xmem {
                 if (totalBanks == 0) {
                         results.succeeded = false;
                         results.failedBank = 0;
-                        results.failedAddress = reinterpret_cast<uint8_t *> (0x2200);
+                        results.failedAddress = reinterpret_cast<uint8_t *>(0x2200);
                         return results;
                 }
 #if defined(EXT_RAM)
@@ -266,7 +276,7 @@ namespace xmem {
 
                         setMemoryBank(bank);
 
-                        for (ptr = reinterpret_cast<uint8_t *> (0xFFFF); ptr >= reinterpret_cast<uint8_t *> (0x2200); ptr--) {
+                        for (ptr = reinterpret_cast<uint8_t *>(0xFFFF); ptr >= reinterpret_cast<uint8_t *>(0x2200); ptr--) {
                                 *ptr = writeValue;
 
                                 if (writeValue++ == 237)
@@ -281,7 +291,7 @@ namespace xmem {
 
                         setMemoryBank(bank);
 
-                        for (ptr = reinterpret_cast<uint8_t *> (0xFFFF); ptr >= reinterpret_cast<uint8_t *> (0x2200); ptr--) {
+                        for (ptr = reinterpret_cast<uint8_t *>(0xFFFF); ptr >= reinterpret_cast<uint8_t *>(0x2200); ptr--) {
 
                                 readValue = *ptr;
 
