@@ -33,10 +33,21 @@
 // 0 to NOT move stack to external RAM
 // 1 to move stack to external RAM
 #define EXT_RAM_STACK 1
-// size to reserve for the stack from external RAM, this is in addition to the on-chip RAM
-// the Default is 15.5K additional, so that the malloc arena can begin on an even page.
-// now if we could only define a windowed area, we could have banks AND stack. Hmmm...
-#define EXT_RAM_STACK_ARENA 0x3e00
+// Size to reserve for the stack from external RAM, this is NOT in addition to the on-chip RAM.
+// Now if we could only define a windowed area, we could have banks AND stack. Hmmm...
+// The best place to land this is on a 4K boundary. Add 0x0f00 to start arena on an even page.
+// Here is a handy table:
+// value    | stack size | malloc arena start
+// ---------+------------+-------------------
+// 0x3f00   | 16128      |
+// 0x2f00   | 12032      |
+// 0x1f00   | 7936       |
+// 0x0f00   | 3840       |
+// < 0x0f00 | default    |
+#define EXT_RAM_STACK_ARENA 0x03f00
+
+// set to 1 to include ram test code.
+#define WANT_TEST_CODE 0
 // </Settings> No user servicable parts below this point.
 
 
@@ -49,7 +60,7 @@ namespace xmem {
 	 * Pointers to the start and end of memory
 	 */
 
-#if EXT_RAM_STACK
+#if EXT_RAM_STACK && (EXT_RAM_STACK_ARENA > 0x0eff)
 #define XMEM_START ((void *)(XRAMEND + EXT_RAM_STACK_ARENA + 1))
 #define XMEM_END ((void *)0xFFFF)
 #define XMEM_STACK_TOP (XRAMEND + EXT_RAM_STACK_ARENA)
@@ -69,6 +80,17 @@ namespace xmem {
 	};
 
 	/*
+	 * Prototypes for the management functions
+	 */
+	void begin(bool heapInXmem_, bool stackInXmem);
+	void begin(bool heapInXmem_);
+	void setMemoryBank(uint8_t bank_,bool switchHeap_=true);
+	void saveHeap(uint8_t bank_);
+	void restoreHeap(uint8_t bank_);
+        uint8_t getTotalBanks();
+
+#if WANT_TEST_CODE
+        /*
 	 * Results of a self-test run
 	 */
 
@@ -78,17 +100,8 @@ namespace xmem {
 			uint8_t failedBank;
 	};
 
-	/*
-	 * Prototypes for the management functions
-	 */
-	void begin(bool heapInXmem_, bool stackInXmem);
-	void begin(bool heapInXmem_);
-	void setMemoryBank(uint8_t bank_,bool switchHeap_=true);
 	SelfTestResults selfTest();
-	void saveHeap(uint8_t bank_);
-	void restoreHeap(uint8_t bank_);
-        uint8_t getTotalBanks();
-
+#endif
 }
 
 /*

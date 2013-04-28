@@ -253,6 +253,8 @@ namespace xmem {
 #endif
         }
 
+#if WANT_TEST_CODE
+
         /*
          * Self test the memory. This will destroy the entire content of all
          * memory banks so don't use it except in a test scenario.
@@ -311,4 +313,5 @@ namespace xmem {
                 return results;
 #endif
         }
+#endif
 }
