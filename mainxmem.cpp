@@ -6,12 +6,12 @@ int main(void) {
         xmem::begin(true, EXT_RAM_STACK);
         if (EXT_RAM_STACK != 1) goto no;
         if (xmem::getTotalBanks() == 0) goto no;
-        asm volatile ( ".set __stack, %0" ::"i" (RAMEND));
+        asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
 
-        asm volatile ( "ldi     16, %0" ::"i" (RAMEND >> 8));
+        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
         asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
 
-        asm volatile ( "ldi     16, %0" ::"i" (RAMEND & 0x0ff));
+        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
         asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_LO_ADDR));
 
 no:

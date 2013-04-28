@@ -50,11 +50,11 @@ namespace xmem {
 	 */
 
 #if EXT_RAM_STACK
-#define XMEM_START ((void *)(XRAMEND + EXT_RAM_STACK_ARENA+1))
+#define XMEM_START ((void *)(XRAMEND + EXT_RAM_STACK_ARENA + 1))
 #define XMEM_END ((void *)0xFFFF)
-#define XMEM_STACK_TOP ((void *)(XRAMEND + EXT_RAM_STACK_ARENA))
+#define XMEM_STACK_TOP (XRAMEND + EXT_RAM_STACK_ARENA)
 #else
-#define XMEM_START ((void *)0x2200)
+#define XMEM_START ((void *)(XRAMEND + 1))
 #define XMEM_END ((void *)0xFFFF)
 #endif
 	/*
