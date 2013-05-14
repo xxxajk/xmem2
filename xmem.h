@@ -51,9 +51,25 @@
 // </Settings> No user servicable parts below this point.
 
 
+
+
+#if !defined(XMEM_MULTIPLE_APP)
+#if defined(USE_MULTIPLE_APP_API)
+#define XMEM_MULTIPLE_APP
+#endif
+#endif
+
 #include <stdlib.h>
 #include <stdint.h>
 
+#if defined(XMEM_MULTIPLE_APP)
+#include <avr/interrupt.h>
+#define CLK_prescale1       ((1 << WGM12) | (1 << CS10))
+#define CLK_prescale8       ((1 << WGM12) | (1 << CS11))
+#define CLK_prescale64      ((1 << WGM12) | (1 << CS10) | (1 << CS11))
+#define CLK_prescale256     ((1 << WGM12) | (1 << CS12))
+#define CLK_prescale1024    ((1 << WGM12) | (1 << CS12) | (1 << CS10))
+#endif
 namespace xmem {
 
 	/*
