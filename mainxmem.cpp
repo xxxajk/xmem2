@@ -2,11 +2,12 @@
 #include <xmem.h>
 
 #if !defined(XMEM_MULTIPLE_APP)
+
 int main(void) {
 #if defined(EXT_RAM)
         cli();
-        xmem::begin(true, EXT_RAM_STACK);
-        if (EXT_RAM_STACK != 1) goto no;
+        xmem::begin(EXT_RAM_HEAP, EXT_RAM_STACK);
+#if EXT_RAM_STACK
         if (xmem::getTotalBanks() == 0) goto no;
         if (XMEM_STACK_TOP == XRAMEND) goto no;
         asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
@@ -17,6 +18,7 @@ int main(void) {
         asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
         asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_LO_ADDR));
 no:
+#endif
         sei();
 #endif
         init();
@@ -62,10 +64,11 @@ int main(void) {
 
 bad:
         // just lock up in a loop. There is no way I can think of to tell the user. :-(
-        for(;;);
+        for (;;);
 }
 
 // task switch
+
 ISR(TIMER3_COMPA_vect) {
 
 }

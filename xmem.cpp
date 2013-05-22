@@ -171,7 +171,7 @@ namespace xmem {
         }
 
         void begin(bool heapInXmem_) {
-                begin(heapInXmem_, false);
+                begin(heapInXmem_, EXT_RAM_STACK);
         }
 
 

@@ -28,11 +28,25 @@
 
 // Please note, you only need to disable this if you want to optimize code size, and save a few bytes of RAM.
 // 1 for Rugged Circuits, anything else for Andy Brown, comment out to disable
+#ifndef EXT_RAM
 #define EXT_RAM 1
+#endif
+
+//
+// 0 to NOT move heap to external RAM
+// 1 to move heap to external RAM
+//
+
+#ifndef EXT_RAM_HEAP
+#define EXT_RAM_HEAP 1
+#endif
 
 // 0 to NOT move stack to external RAM
 // 1 to move stack to external RAM
+#ifndef EXT_RAM_STACK
 #define EXT_RAM_STACK 1
+#endif
+
 // Size to reserve for the stack from external RAM, this is NOT in addition to the on-chip RAM.
 // Now if we could only define a windowed area, we could have banks AND stack. Hmmm...
 // The best place to land this is on a 4K boundary. Add 0x0f00 to start arena on an even page.
@@ -49,8 +63,6 @@
 // set to 1 to include ram test code.
 #define WANT_TEST_CODE 0
 // </Settings> No user servicable parts below this point.
-
-
 
 
 #if !defined(XMEM_MULTIPLE_APP)
@@ -77,9 +89,9 @@ namespace xmem {
 	 */
 
 #if EXT_RAM_STACK && (EXT_RAM_STACK_ARENA > 0x0eff)
-#define XMEM_START ((void *)(XRAMEND + EXT_RAM_STACK_ARENA + 1))
-#define XMEM_END ((void *)0xFFFF)
-#define XMEM_STACK_TOP (XRAMEND + EXT_RAM_STACK_ARENA)
+#define XMEM_STACK_TOP (RAMEND + EXT_RAM_STACK_ARENA)
+#define XMEM_START ((void *)(XMEM_STACK_TOP + 1))
+#define XMEM_END ((void *)XRAMEND)
 #else
 #define XMEM_START ((void *)(XRAMEND + 1))
 #define XMEM_END ((void *)0xFFFF)
