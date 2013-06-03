@@ -3,7 +3,7 @@ xmem2
 
 xmem compatible library with autosize features.
 
-<code>
+<pre>
 Supports both RuggedCircuits RAM expansions automatically.
 Supports Andy Brown's RAM expansion too.
 
@@ -24,4 +24,4 @@ NEW: CPU cycle friendly Sleep()
      Ability to determine parent task.
      Ability to detect when a task is running or done.
      Ability to determine if parent task owns child task.
-</code>
+</pre>
