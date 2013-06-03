@@ -32,9 +32,6 @@
  */
 #include "xmem.h"
 
-// Select which shield you are using, Andy Brown's or the Rugged Circuits QuadRAM Shield.
-// Only uncomment one of the two lines below.
-
 #if defined(EXT_RAM)
 #if EXT_RAM == 1
 #define RUGGED_CIRCUITS_SHIELD
@@ -80,6 +77,8 @@ namespace xmem {
         struct task {
                 unsigned int sp; // stack pointer
                 uint8_t state; // task state.
+                uint64_t sleep; // ms to sleep
+                uint8_t parent; // the task that started this task
         } volatile tasks[USE_MULTIPLE_APP_API];
 #endif
 
@@ -196,13 +195,14 @@ namespace xmem {
                                 saveHeap(bank);
 #if defined(USE_MULTIPLE_APP_API)
                                 if (bank < USE_MULTIPLE_APP_API) {
-                                        tasks[bank].state = 0; // Not in use.
+                                        tasks[bank].state = XMEM_STATE_FREE; // Not in use.
                                 }
 #endif
                         }
                 }
 #if defined(XMEM_MULTIPLE_APP)
-                        tasks[0].state = 0x80; // In use, running
+                tasks[0].state = XMEM_STATE_RUNNING; // In use, running
+                tasks[0].parent = 0; // ourself
 #endif
 #endif
         }
@@ -306,34 +306,193 @@ namespace xmem {
 
 #if defined(XMEM_MULTIPLE_APP)
 
+        /**
+         * @return which task started this task.
+         */
+        uint8_t Task_Parent() {
+                return tasks[currentBank].parent;
+        }
+
+        /**
+         *
+         * @param which task ID
+         * @return is the child process is running.
+         *
+         * Only the parent process should call this.
+         */
+        boolean Is_Running(uint8_t which) {
+                if(tasks[which].parent != currentBank) return false;
+                return (tasks[which].state == XMEM_STATE_RUNNING || tasks[which].state == XMEM_STATE_SLEEP);
+        }
+
+        /**
+         *
+         * @param which task ID
+         * @return the child process is done.
+         *
+         * Only the parent should call this.
+         *
+         */
+        boolean Is_Done(uint8_t which) {
+                if(tasks[which].parent != currentBank) return true;
+                return (tasks[which].state == XMEM_STATE_DEAD);
+        }
+
+        /**
+         *
+         * @param which task ID
+         * @return state of this task.
+         */
+        uint8_t Task_State(uint8_t which) {
+                return tasks[currentBank].state;
+        }
+
+        /**
+         *
+         * @param which task ID
+         * @return task is a child of calling task.
+         *
+         */
+        boolean Task_Is_Mine(uint8_t which) {
+                return (tasks[which].parent == currentBank);
+        }
+
+
+        /**
+         * Yield CPU to another task.
+         */
+        void Yield(void) {
+                cli();
+                register uint16_t rightnow = TCNT3 + 2;
+                TCNT3 = CLK_CMP - 1;
+                sei();
+                delayMicroseconds(10); // 5 microseconds * 2 == 2 ticks
+                //delayMicroseconds(5);
+                cli();
+                // Correct the clock as best we can after the forced tick
+                if (rightnow >= CLK_CMP) rightnow = CLK_CMP - 1;
+                TCNT3 = rightnow;
+                sei();
+        }
+
+        /**
+         *
+         * @param object
+         */
+        void Lock_Acquire(uint8_t *object) {
+                while(*object) Yield();
+                cli();
+                *object = 1;
+                sei();
+        }
+
+        /**
+         *
+         * @param object
+         */
+        void Lock_Release(uint8_t *object) {
+                cli();
+                *object = 0;
+                sei();
+        }
+
+        /**
+         * @param sleep how long to sleep for in milliseconds.
+         *
+         * 10us setting (default):
+         * Accuracy +/- 10us + context switch, and also depends on how many tasks are woken at the same time.
+         *
+         * The limit for 10us is 0ms to 1844674407370955161ms.
+         * 1,844,674,407,370,955,161ms = ~21,350,398,233,460.12 days, or ~58,454,204,609 years.
+         * By then, you will be dead and the star known as Sol should have
+         * exploded 50 to 54 billion years ago, give or take a billion years.
+         *
+         * 50us setting:
+         * Accuracy +/- 50us + context switch, and also depends on how many tasks are woken at the same time.
+         *
+         * The limit for 50us is 0ms to 9223372036854775807ms.
+         * 9,223,372,036,854,775,807ms = ~106,751,991,167,300.64 days, or ~292,271,023,045 years.
+         * By then, you will be dead and the star known as Sol should have
+         * exploded 284 to 288 billion years ago, give or take a billion years.
+         *
+         */
+        void Sleep(uint64_t sleep) {
+                if (sleep == 0) return; // what? :-)
+                cli();
+#ifdef fiftyus
+                tasks[currentBank].sleep = sleep * 2;
+#else
+                tasks[currentBank].sleep = sleep * 10;
+#endif
+                tasks[currentBank].state = XMEM_STATE_SLEEP;
+                sei();
+                Yield();
+                while (tasks[currentBank].state == XMEM_STATE_SLEEP); // Guard, just in case...
+        }
+
+        /**
+         *
+         * @param which Task ID to start or continue after pausing.
+         *
+         * If task is not a child of this parent, do nothing.
+         *
+         */
         void StartTask(uint8_t which) {
+                if(tasks[which].parent != currentBank) return;
                 cli();
-                if (tasks[which].state == 0x01) tasks[which].state = 0x80; // running
+                if (tasks[which].state == XMEM_STATE_PAUSED) tasks[which].state = XMEM_STATE_RUNNING; // running
                 sei();
         }
 
+        /**
+         *
+         * @param which Task ID to pause
+         *
+         * If task is not a child of this parent, do nothing.
+         *
+         */
         void PauseTask(uint8_t which) {
+                if(tasks[which].parent != currentBank) return;
                 cli();
-                if (tasks[which].state == 0x80) tasks[which].state = 0x01; // setup/pause state
+                if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
                 sei();
         }
 
+        /**
+         * This is called when a task has exited.
+         */
         void TaskFinish(void) {
                 cli();
-                tasks[currentBank].state = 0x81; // dead
+                tasks[currentBank].state = XMEM_STATE_DEAD; // dead
                 sei();
                 for (;;);
         }
 
+        // use the defaults from xmem.h, 8192 bytes
 
-        // Find a free slot, and start up.
-        // NOTE: NOT REENTRANT! returns zero on error.
-        // returns task number on success.
-        // collects tasks that have ended during search.
-        // r25:r24 contains func,
-        // r25:24:r22 for 2560?
-
+        /**
+         *
+         * @param func function that becomes a new task.
+         * @return Task ID
+         *
+         * Uses the defaults from xmem.h, 8192 bytes
+         */
         uint8_t SetupTask(void (*func)(void)) {
+                return SetupTask(func, (EXT_RAM_STACK_ARENA));
+        }
+
+        /**
+         *
+         * @param func function that becomes a new task.
+         * @param ofs How much space to reserve for the stack, 1024-30719
+         * @return Task ID, A task ID of 0 = failure.
+         *
+         * NOTE: NOT REENTRANT! Only one task at a time may allocate a new task.
+         * Collects tasks that have ended during search.
+         */
+        uint8_t SetupTask(void (*func)(void), unsigned int ofs) {
+                // r25:r24 contains func on 128x,
+                // r25:24:r22 for 256x?
                 static unsigned int oldsp;
                 static uint8_t oldbank;
                 static int i;
@@ -346,18 +505,23 @@ namespace xmem {
                 asm volatile ("push r22"); // loh8
                 asm volatile ("pop r3");
 #endif
+                if(ofs > 30719 || ofs < 1024) {
+                        sei();
+                        return 0; // FAIL!
+                }
                 for (i = 0; i < XMEM_MAX_BANK_HEAPS; i++) {
                         if (i == currentBank) continue; // Don't free or check current task!
-                        if (tasks[i].state == 0x81) tasks[i].state = 0x00; // collect a dead task.
-                        if (tasks[i].state == 0x00) {
-                                tasks[i].state = 0x01; // setting up/paused
+                        if (tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
+                        if (tasks[i].state == XMEM_STATE_FREE) {
+                                tasks[i].state = XMEM_STATE_PAUSED; // setting up/paused
+                                tasks[i].parent = currentBank; // parent
+                                tasks[i].sp = (0x7FFF + ofs);
                                 // switch banks, and do setup
                                 oldbank = currentBank;
                                 oldsp = SP;
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(i, false);
                                 setupHeap();
-                                tasks[currentBank].sp = (XMEM_STACK_TOP);
                                 SP = tasks[currentBank].sp;
 
                                 // Push task ending address. We lose r16 :-(
@@ -375,7 +539,7 @@ namespace xmem {
                                 asm volatile ("push r4"); // lo8
                                 asm volatile ("push r5"); // hi8
 #if defined (__AVR_ATmega2560__)
-                                asm volatile ("push r3"); // loh8
+                                asm volatile ("push r3"); // hh8
 #endif
 
                                 // fill in all registers.
@@ -432,10 +596,9 @@ namespace xmem {
                 return 0; // fail, task zero is always taken.
         }
 
-        // Task switch, do what we need to do as fast as possible.
-        // We do not count what we do in here as part of the task time.
+        // Task switch ISR, do what we need to do as fast as possible.
+        // We count what we do in here as part of the task time.
         // Therefore, actual task time is variable.
-
         ISR(TIMER3_COMPA_vect, ISR_NAKED) {
                 asm volatile ("push r1");
                 asm volatile ("push r0");
@@ -477,34 +640,49 @@ namespace xmem {
                 asm volatile ("push r30");
                 asm volatile ("push r31");
 
-                TIMSK3 ^= (1 << OCIE1A); // Disable timer
-                register uint8_t check = currentBank;
-                for(;;) {
-                        check++;
-                        if (check == XMEM_MAX_BANK_HEAPS) {
-                                check = 0;
+                register uint8_t check;
+                register uint8_t balance;
+
+                for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
+                        if (tasks[check].state == XMEM_STATE_SLEEP) {
+                                if (tasks[check].sleep == 0) {
+                                        tasks[check].state = XMEM_STATE_RUNNING;
+                                        break;
+                                }
+                                tasks[check].sleep--;
                         }
-                        if(tasks[check].state == 0x80) break;
                 }
+
+                if (check == XMEM_MAX_BANK_HEAPS) {
+                        // Check tasks after current.
+                        for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
+                                if (tasks[check].state == XMEM_STATE_RUNNING) break;
+                        }
+                } else {
+                        // Decrement the remaining sleep counters.
+                        for (balance = check + 1; balance < XMEM_MAX_BANK_HEAPS; balance++) {
+                                if (tasks[check].state == XMEM_STATE_SLEEP) {
+                                        if (tasks[check].sleep == 0) continue;
+                                        else tasks[check].sleep--;
+                                }
+                        }
+
+                }
+                if (check == XMEM_MAX_BANK_HEAPS) {
+                        // Check tasks before current.
+                        for (check = 0; check < currentBank; check++) {
+                                if (tasks[check].state == XMEM_STATE_RUNNING) break;
+                        }
+                }
+
+
                 if (check != currentBank) { // skip if we are not context switching
-                        // inline
-                        bankHeapStates[currentBank].__malloc_heap_start = __malloc_heap_start;
-                        bankHeapStates[currentBank].__malloc_heap_end = __malloc_heap_end;
-                        bankHeapStates[currentBank].__brkval = __brkval;
-                        bankHeapStates[currentBank].__flp = __flp;
                         tasks[currentBank].sp = SP;
                         SP = keepstack; // original on-chip ram
-                        setMemoryBank(check, false);
-                        __malloc_heap_start = bankHeapStates[currentBank].__malloc_heap_start;
-                        __malloc_heap_end = bankHeapStates[currentBank].__malloc_heap_end;
-                        __brkval = bankHeapStates[currentBank].__brkval;
-                        __flp = bankHeapStates[currentBank].__flp;
+                        setMemoryBank(check, true);
                         SP = tasks[currentBank].sp;
                 }
                 // Again!
-                //TCCR3A = 0; // Zero
-                //TCCR3B = 0; //      timer
-                TIMSK3 |= (1 << OCIE1A); // Enable timer
                 asm volatile ("pop r31");
                 asm volatile ("pop r30");
                 asm volatile ("pop r29");

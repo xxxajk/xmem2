@@ -23,8 +23,9 @@
 // <Settings>
 
 // Uncomment to always use.
-// It is much better to do this from make The number is maximal possible tasks.
-//#define USE_MULTIPLE_APP_API 16
+// It is much better to do this from the Makefile.
+// The number is maximal possible tasks.
+#define USE_MULTIPLE_APP_API 16
 
 // Please note, you only need to disable this if you want to optimize code size, and save a few bytes of RAM.
 // 1 for Rugged Circuits, anything else for Andy Brown, comment out to disable
@@ -67,7 +68,7 @@
 // < 0x0f00 | default    |
 #define EXT_RAM_STACK_ARENA 0x03f00
 #else
-#define EXT_RAM_STACK_ARENA 0x2000 // 8K stack, 24K malloc arena. Adjust as needed.
+#define EXT_RAM_STACK_ARENA 0x2000 // Default 8K stack, 24K malloc arena.
 #endif
 
 // set to 1 to include ram test code.
@@ -92,14 +93,34 @@
 #define XMEM_END ((void *)0xFFFF)
 #endif
 #else
-#define CLK_prescale1       ((1 << WGM12) | (1 << CS10))
-#define CLK_prescale8       ((1 << WGM12) | (1 << CS11))
-#define CLK_prescale64      ((1 << WGM12) | (1 << CS10) | (1 << CS11))
-#define CLK_prescale256     ((1 << WGM12) | (1 << CS12))
-#define CLK_prescale1024    ((1 << WGM12) | (1 << CS12) | (1 << CS10))
-#define XMEM_STACK_TOP (0x7FFF + EXT_RAM_STACK_ARENA)
-#define XMEM_START ((void *)(XMEM_STACK_TOP + 1))
-#define XMEM_END ((void *)0xFFFF)
+#define CLK_prescale1           ((1 << WGM12) | (1 << CS10))
+#define CLK_prescale8           ((1 << WGM12) | (1 << CS11))
+#define CLK_prescale64          ((1 << WGM12) | (1 << CS10) | (1 << CS11))
+#define CLK_prescale256         ((1 << WGM12) | (1 << CS12))
+#define CLK_prescale1024        ((1 << WGM12) | (1 << CS12) | (1 << CS10))
+
+// How fast to task switch? uncomment to use 50us
+//#define fiftyus
+#ifdef fiftyus
+// 50us
+// (0.0005/(1/((16 *(10^6)) / 8))) - 1 = 999
+#define CLK_CMP 999
+#else
+// 10us
+// (0.0001/(1/((16 *(10^6)) / 8))) - 1 = 199
+#define CLK_CMP 199
+#endif
+
+
+#define XMEM_STACK_TOP          (0x7FFF + EXT_RAM_STACK_ARENA)
+#define XMEM_START              ((void *)(XMEM_STACK_TOP + 1))
+#define XMEM_END                ((void *)0xFFFF)
+#define XMEM_STATE_FREE         0x00
+#define XMEM_STATE_PAUSED       0x01
+#define XMEM_STATE_RUNNING      0x80
+#define XMEM_STATE_DEAD         0x81
+#define XMEM_STATE_SLEEP        0x82
+#define XMEM_STATE_WAKE         0x83
 #endif
 
 
@@ -109,45 +130,56 @@
 namespace xmem {
 
         /*
-	 * State variables used by the heap
-	 */
+         * State variables used by the heap
+         */
         void setupHeap(void);
-	struct heapState {
-			char *__malloc_heap_start;
-			char *__malloc_heap_end;
-			void *__brkval;
-			void *__flp;
-	};
 
-	/*
-	 * Prototypes for the management functions
-	 */
-	void begin(bool heapInXmem_, bool stackInXmem);
-	void begin(bool heapInXmem_);
-	void setMemoryBank(uint8_t bank_,bool switchHeap_=true);
-	void saveHeap(uint8_t bank_);
-	void restoreHeap(uint8_t bank_);
+        struct heapState {
+                char *__malloc_heap_start;
+                char *__malloc_heap_end;
+                void *__brkval;
+                void *__flp;
+        };
+
+        /*
+         * Prototypes for the management functions
+         */
+        void begin(bool heapInXmem_, bool stackInXmem);
+        void begin(bool heapInXmem_);
+        void setMemoryBank(uint8_t bank_, bool switchHeap_ = true);
+        void saveHeap(uint8_t bank_);
+        void restoreHeap(uint8_t bank_);
         uint8_t getTotalBanks();
 
 #if defined(USE_MULTIPLE_APP_API)
+        void Lock_Acquire(uint8_t *object);
+        void Lock_Release(uint8_t *object);
+        void Sleep(uint64_t sleep);
+        uint8_t SetupTask(void (*func)(void), unsigned int ofs);
         uint8_t SetupTask(void (*func)(void));
         void StartTask(uint8_t which);
         void PauseTask(uint8_t which);
         void TaskFinish(void);
+        uint8_t Task_Parent(uint8_t which);
+        boolean Is_Running(uint8_t which);
+        boolean Is_Done(uint8_t which);
+        uint8_t Task_State(uint8_t which);
+        boolean Task_Is_Mine(uint8_t which);
 #endif
 
 #if WANT_TEST_CODE
+
         /*
-	 * Results of a self-test run
-	 */
+         * Results of a self-test run
+         */
 
-	struct SelfTestResults {
-			bool succeeded;
-			volatile uint8_t *failedAddress;
-			uint8_t failedBank;
-	};
+        struct SelfTestResults {
+                bool succeeded;
+                volatile uint8_t *failedAddress;
+                uint8_t failedBank;
+        };
 
-	SelfTestResults selfTest();
+        SelfTestResults selfTest();
 #endif
 }
 
@@ -156,8 +188,8 @@ namespace xmem {
  */
 
 extern "C" {
-	extern void *__flp;
-	extern void *__brkval;
+        extern void *__flp;
+        extern void *__brkval;
 }
 #if defined(USE_MULTIPLE_APP_API)
 extern volatile unsigned int keepstack; // original stack pointer on the avr.

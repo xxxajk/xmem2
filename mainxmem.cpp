@@ -59,11 +59,12 @@ int main(void) {
         setup();
         // Set up task switching
         cli();
-        // How fast to task switch?
-        // (0.01/(1/((16 *(10^6)) / 8))) - 1 = 19999
-        OCR3A = 19999;
+        TCCR3A = 0;
+        TCCR3B = 0;
+        OCR3A = CLK_CMP;
         TCCR3B |= CLK_prescale8;
-        TIMSK3 |= (1 << OCIE1A); // Enable timer
+        TCNT3 = 0;
+        TIMSK3 |= (1 << OCIE3A); // Enable timer
         sei();
 forever:
 
