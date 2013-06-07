@@ -25,7 +25,7 @@
 // Uncomment to always use.
 // It is much better to do this from the Makefile.
 // The number is maximal possible tasks.
-#define USE_MULTIPLE_APP_API 16
+//#define USE_MULTIPLE_APP_API 16
 
 // Please note, you only need to disable this if you want to optimize code size, and save a few bytes of RAM.
 // 1 for Rugged Circuits, anything else for Andy Brown, comment out to disable
