@@ -98,6 +98,10 @@
 #define CLK_prescale64          ((1 << WGM12) | (1 << CS10) | (1 << CS11))
 #define CLK_prescale256         ((1 << WGM12) | (1 << CS12))
 #define CLK_prescale1024        ((1 << WGM12) | (1 << CS12) | (1 << CS10))
+typedef struct {
+        uint8_t volatile data;
+        boolean volatile ready;
+} pipe;
 
 // How fast to task switch? uncomment to use 50us
 //#define fiftyus
@@ -160,11 +164,15 @@ namespace xmem {
         void StartTask(uint8_t which);
         void PauseTask(uint8_t which);
         void TaskFinish(void);
-        uint8_t Task_Parent(uint8_t which);
+        uint8_t Task_Parent();
         boolean Is_Running(uint8_t which);
         boolean Is_Done(uint8_t which);
         uint8_t Task_State(uint8_t which);
         boolean Task_Is_Mine(uint8_t which);
+        void Yield(void);
+        void pipe_init(pipe *p);
+        void pipe_put(uint8_t c, pipe *p);
+        uint8_t pipe_get(pipe *p);
 #endif
 
 #if WANT_TEST_CODE
@@ -193,6 +201,7 @@ extern "C" {
 }
 #if defined(USE_MULTIPLE_APP_API)
 extern volatile unsigned int keepstack; // original stack pointer on the avr.
+
 #endif
 
 #endif

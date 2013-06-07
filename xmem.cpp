@@ -45,6 +45,7 @@
 #else
 #include <avr/interrupt.h>
 #define XMEM_MAX_BANK_HEAPS USE_MULTIPLE_APP_API
+#include <alloca.h>
 volatile unsigned int keepstack; // original stack pointer on the avr.
 #endif
 
@@ -307,6 +308,101 @@ namespace xmem {
 #if defined(XMEM_MULTIPLE_APP)
 
         /**
+         *
+         * @param p pipe in AVR RAM to initialize
+         */
+        void pipe_init(pipe *p) {
+                p->ready = false;
+        }
+
+        /**
+         *
+         * @param c 8bit data
+         * @param p pipe in AVR RAM
+         */
+        void pipe_put(uint8_t c, pipe *p) {
+                while (p->ready);
+                cli();
+                p->data = c;
+                p->ready = true;
+                sei();
+        }
+
+        /**
+         *
+         * @param p pipe in AVR RAM
+         * @return 8bit data
+         */
+        uint8_t pipe_get(pipe *p) {
+                uint8_t c;
+                while (!p->ready);
+                cli();
+                c = p->data;
+                p->ready = false;
+                sei();
+                return c;
+        }
+
+        /**
+         *
+         * @param d destination address
+         * @param s source address
+         * @param len length to copy
+         * @param db destination task
+         */
+        void copy_to_task(void *d, void *s, size_t len, uint8_t db) {
+                cli();
+                register uint8_t mb = currentBank;
+                tasks[mb].sp = SP;
+                SP = keepstack; // original on-chip ram
+                register void *buf = alloca(16); // stack allocation, automatically freed
+                register size_t l;
+                while (len) {
+                        l = len;
+                        if (l > 16) l = 16;
+                        setMemoryBank(mb, false);
+                        memcpy(buf, s, l);
+                        setMemoryBank(db, false);
+                        memcpy(d, buf, l);
+                        len -= l;
+                        s = l + ((char *)s);
+                        d = l + ((char *)d);
+                }
+                setMemoryBank(mb, false);
+                SP = tasks[mb].sp;
+                sei();
+        }
+
+        /**
+         *
+         * @param d destination address
+         * @param s source address
+         * @param len length to copy
+         * @param sb source task
+         */
+        void copy_from_task(void *d, void *s, size_t len, uint8_t sb) {
+                cli();
+                register uint8_t mb = currentBank;
+                tasks[mb].sp = SP;
+                SP = keepstack; // original on-chip ram
+                register void *buf = alloca(16); // stack allocation, automatically freed
+                register size_t l;
+                while (len) {
+                        l = len;
+                        if (l > 16) l = 16;
+                        setMemoryBank(sb, false);
+                        memcpy(buf, s, l);
+                        setMemoryBank(mb, false);
+                        memcpy(d, buf, l);
+                        len -= l;
+                        s = l + ((char *)s);
+                        d = l + ((char *)d);
+                }
+                SP = tasks[mb].sp;
+                sei();
+        }
+
+        /**
          * @return which task started this task.
          */
         uint8_t Task_Parent() {
@@ -321,7 +417,7 @@ namespace xmem {
          * Only the parent process should call this.
          */
         boolean Is_Running(uint8_t which) {
-                if(tasks[which].parent != currentBank) return false;
+                if (tasks[which].parent != currentBank) return false;
                 return (tasks[which].state == XMEM_STATE_RUNNING || tasks[which].state == XMEM_STATE_SLEEP);
         }
 
@@ -334,7 +430,7 @@ namespace xmem {
          *
          */
         boolean Is_Done(uint8_t which) {
-                if(tasks[which].parent != currentBank) return true;
+                if (tasks[which].parent != currentBank) return true;
                 return (tasks[which].state == XMEM_STATE_DEAD);
         }
 
@@ -357,7 +453,6 @@ namespace xmem {
                 return (tasks[which].parent == currentBank);
         }
 
-
         /**
          * Yield CPU to another task.
          */
@@ -377,18 +472,24 @@ namespace xmem {
 
         /**
          *
-         * @param object
+         * @param object Caution, must be in AVR RAM
          */
         void Lock_Acquire(uint8_t *object) {
-                while(*object) Yield();
+spin:
+                while (*object) Yield();
                 cli();
+                // Just in case...
+                if (*object) {
+                        sei();
+                        goto spin;
+                }
                 *object = 1;
                 sei();
         }
 
         /**
          *
-         * @param object
+         * @param object Caution, must be in AVR RAM
          */
         void Lock_Release(uint8_t *object) {
                 cli();
@@ -438,7 +539,7 @@ namespace xmem {
          *
          */
         void StartTask(uint8_t which) {
-                if(tasks[which].parent != currentBank) return;
+                if (tasks[which].parent != currentBank) return;
                 cli();
                 if (tasks[which].state == XMEM_STATE_PAUSED) tasks[which].state = XMEM_STATE_RUNNING; // running
                 sei();
@@ -452,7 +553,7 @@ namespace xmem {
          *
          */
         void PauseTask(uint8_t which) {
-                if(tasks[which].parent != currentBank) return;
+                if (tasks[which].parent != currentBank) return;
                 cli();
                 if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
                 sei();
@@ -505,7 +606,7 @@ namespace xmem {
                 asm volatile ("push r22"); // loh8
                 asm volatile ("pop r3");
 #endif
-                if(ofs > 30719 || ofs < 1024) {
+                if (ofs > 30719 || ofs < 1024) {
                         sei();
                         return 0; // FAIL!
                 }
@@ -599,6 +700,7 @@ namespace xmem {
         // Task switch ISR, do what we need to do as fast as possible.
         // We count what we do in here as part of the task time.
         // Therefore, actual task time is variable.
+
         ISR(TIMER3_COMPA_vect, ISR_NAKED) {
                 asm volatile ("push r1");
                 asm volatile ("push r0");
