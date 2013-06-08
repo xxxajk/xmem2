@@ -175,7 +175,7 @@ namespace xmem {
         void pipe_put(uint8_t c, pipe *p);
         uint8_t pipe_get(pipe *p);
         void send_message(uint8_t *message, int len, pipe *p);
-        int recv_message(uint8_t *message, pipe *p);
+        int recv_message(uint8_t **message, pipe *p);
 #endif
 
 #if WANT_TEST_CODE

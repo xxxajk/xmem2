@@ -328,17 +328,18 @@ namespace xmem {
          * @param p pipe to receive data from in AVR RAM
          * @return length of message
          */
-        int recv_message(uint8_t *message, pipe *p) {
+        int recv_message(uint8_t **message, pipe *p) {
                 int len;
                 int rv;
                 len = xmem::pipe_get(p);
                 len += xmem::pipe_get(p) << 8;
                 rv = len;
-                message = malloc(len);
-                uint8_t *ptr = message;
+                *message = (uint8_t *)malloc(len);
+                uint8_t *ptr = *message;
                 while (len) {
                         *ptr = xmem::pipe_get(p);
                         ptr++;
+                        len--;
                 }
                 return rv;
         }
