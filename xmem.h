@@ -170,9 +170,12 @@ namespace xmem {
         uint8_t Task_State(uint8_t which);
         boolean Task_Is_Mine(uint8_t which);
         void Yield(void);
+        boolean pipe_ready(pipe *p);
         void pipe_init(pipe *p);
         void pipe_put(uint8_t c, pipe *p);
         uint8_t pipe_get(pipe *p);
+        void send_message(uint8_t *message, int len, pipe *p);
+        int recv_message(uint8_t *message, pipe *p);
 #endif
 
 #if WANT_TEST_CODE

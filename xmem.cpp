@@ -304,12 +304,67 @@ namespace xmem {
         }
 
 
-
 #if defined(XMEM_MULTIPLE_APP)
 
         /**
          *
+         * @param message message to send
+         * @param len length of message
+         * @param p pipe to send message on in AVR RAM
+         */
+        void send_message(uint8_t *message, int len, pipe *p) {
+                xmem::pipe_put(len & 0xff, p);
+                xmem::pipe_put((len >> 8) & 0xff, p);
+                while (len) {
+                        xmem::pipe_put(*message, p);
+                        message++;
+                        len--;
+                }
+        }
+
+        /**
+         *
+         * @param message pointer to be allocated
+         * @param p pipe to receive data from in AVR RAM
+         * @return length of message
+         */
+        int recv_message(uint8_t *message, pipe *p) {
+                int len;
+                int rv;
+                len = xmem::pipe_get(p);
+                len += xmem::pipe_get(p) << 8;
+                rv = len;
+                message = malloc(len);
+                uint8_t *ptr = message;
+                while (len) {
+                        *ptr = xmem::pipe_get(p);
+                        ptr++;
+                }
+                return rv;
+        }
+
+        /**
+         *
+         * @param p pipe in AVR RAM to check
+         * @return status
+         */
+        boolean pipe_ready(pipe *p) {
+                cli();
+                boolean rv = p->ready;
+                sei();
+                return rv;
+        }
+
+        /**
+         *
          * @param p pipe in AVR RAM to initialize
+         *
+         *  FIX-ME:
+         *      Make pipe depth > 1 byte.
+         *      This is horribly inefficient, but it does work.
+         *      The question is, how deep should a pipe be?
+         *      Depth can be variable by placing the pointer to the buffer in
+         *      AVR ram. i.e. init with an pointer to buffer, and size.
          */
         void pipe_init(pipe *p) {
                 p->ready = false;
