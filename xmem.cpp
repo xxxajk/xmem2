@@ -92,7 +92,7 @@ namespace xmem {
                         setMemoryBank(0, false);
                         totalBanks = 0;
                         volatile uint8_t *ptr = reinterpret_cast<uint8_t *>(0x2212);
-                        volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(028221);
+                        volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(0x2221);
                         *ptr = 0x55;
                         *ptr2 = 0xAA;
                         *ptr = 0xAA;
@@ -106,7 +106,7 @@ namespace xmem {
                 setMemoryBank(1, false);
 #if !defined(XMEM_MULTIPLE_APP)
                 volatile uint8_t *ptr = reinterpret_cast<uint8_t *>(0x2212);
-                volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(028221);
+                volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(0x2221);
 #else
                 volatile uint8_t *ptr = reinterpret_cast<uint8_t *>(0x8000);
                 volatile uint8_t *ptr2 = reinterpret_cast<uint8_t *>(0x8001);
