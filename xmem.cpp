@@ -303,8 +303,69 @@ namespace xmem {
 
         }
 
-
 #if defined(XMEM_MULTIPLE_APP)
+
+        // controlled memory transaction processing
+
+        /**
+         *
+         * @param p memory copier pipe in AVR RAM to initialize
+         */
+        void memory_init(memory_stream *p) {
+                p->ready = false;
+        }
+
+        /**
+         *
+         * @param p memory copier pipe in AVR RAM
+         * @return status
+         */
+        boolean memory_ready(memory_stream *p) {
+                cli();
+                boolean rv = p->ready;
+                sei();
+                return rv;
+        }
+
+        /**
+         *
+         * @param data data to copy
+         * @param len length of the data
+         * @param p memory copier pipe in AVR RAM
+         */
+        void memory_send(uint8_t *data, int len, memory_stream *p) {
+                while (p->ready); // Since multiple senders are possible, wait.
+                cli();
+                p->data = data;
+                p->data_len = len;
+                p->bank = currentBank;
+                p->ready = true;
+                sei();
+                while (p->ready); // Wait here, because caller may free right after!
+        }
+
+        /**
+         *
+         * @param data pointer to be allocated
+         * @param p memory copier pipe in AVR RAM
+         * @return length of message
+         */
+        int memory_recv(uint8_t **data, memory_stream *p) {
+                *data = (uint8_t *)malloc(p->data_len);
+                while (!p->ready);
+                copy_from_task(*data, (void *)(p->data), p->data_len, p->bank);
+                cli();
+                int len = p->data_len;
+                p->ready = false;
+                sei();
+                return len;
+        }
+
+
+
+
+
+        // byte based pipes, much like un*x
 
         /**
          *
@@ -312,7 +373,7 @@ namespace xmem {
          * @param len length of message
          * @param p pipe to send message on in AVR RAM
          */
-        void send_message(uint8_t *message, int len, pipe *p) {
+        void pipe_send_message(uint8_t *message, int len, pipe_stream *p) {
                 xmem::pipe_put(len & 0xff, p);
                 xmem::pipe_put((len >> 8) & 0xff, p);
                 while (len) {
@@ -328,7 +389,7 @@ namespace xmem {
          * @param p pipe to receive data from in AVR RAM
          * @return length of message
          */
-        int recv_message(uint8_t **message, pipe *p) {
+        int pipe_recv_message(uint8_t **message, pipe_stream *p) {
                 int len;
                 int rv;
                 len = xmem::pipe_get(p);
@@ -349,7 +410,7 @@ namespace xmem {
          * @param p pipe in AVR RAM to check
          * @return status
          */
-        boolean pipe_ready(pipe *p) {
+        boolean pipe_ready(pipe_stream *p) {
                 cli();
                 boolean rv = p->ready;
                 sei();
@@ -367,7 +428,7 @@ namespace xmem {
          *      Depth can be variable by placing the pointer to the buffer in
          *      AVR ram. i.e. init with an pointer to buffer, and size.
          */
-        void pipe_init(pipe *p) {
+        void pipe_init(pipe_stream *p) {
                 p->ready = false;
         }
 
@@ -376,12 +437,10 @@ namespace xmem {
          * @param c 8bit data
          * @param p pipe in AVR RAM
          */
-        void pipe_put(uint8_t c, pipe *p) {
+        void pipe_put(uint8_t c, pipe_stream *p) {
                 while (p->ready);
-                cli();
                 p->data = c;
                 p->ready = true;
-                sei();
         }
 
         /**
@@ -389,15 +448,15 @@ namespace xmem {
          * @param p pipe in AVR RAM
          * @return 8bit data
          */
-        uint8_t pipe_get(pipe *p) {
+        uint8_t pipe_get(pipe_stream *p) {
                 uint8_t c;
                 while (!p->ready);
-                cli();
                 c = p->data;
                 p->ready = false;
-                sei();
                 return c;
         }
+
+#define _MEM_COPY_SZ 128
 
         /**
          *
@@ -408,14 +467,17 @@ namespace xmem {
          */
         void copy_to_task(void *d, void *s, size_t len, uint8_t db) {
                 cli();
+                tasks[currentBank].sp = SP;
+
+                // dirty tricks department, simulate alloca
+                SP = keepstack - (1 + _MEM_COPY_SZ); // original on-chip ram
+                register void *buf;
+                buf = (void *)(keepstack - _MEM_COPY_SZ);
                 register uint8_t mb = currentBank;
-                tasks[mb].sp = SP;
-                SP = keepstack; // original on-chip ram
-                register void *buf = alloca(16); // stack allocation, automatically freed
                 register size_t l;
                 while (len) {
                         l = len;
-                        if (l > 16) l = 16;
+                        if (l > _MEM_COPY_SZ) l = _MEM_COPY_SZ;
                         setMemoryBank(mb, false);
                         memcpy(buf, s, l);
                         setMemoryBank(db, false);
@@ -438,14 +500,18 @@ namespace xmem {
          */
         void copy_from_task(void *d, void *s, size_t len, uint8_t sb) {
                 cli();
+                tasks[currentBank].sp = SP;
+
+                // dirty tricks department, simulate alloca
+                SP = keepstack - (1 + _MEM_COPY_SZ); // original on-chip ram
+                register void *buf;
+                buf = (void *)(keepstack - _MEM_COPY_SZ);
+
                 register uint8_t mb = currentBank;
-                tasks[mb].sp = SP;
-                SP = keepstack; // original on-chip ram
-                register void *buf = alloca(16); // stack allocation, automatically freed
                 register size_t l;
                 while (len) {
                         l = len;
-                        if (l > 16) l = 16;
+                        if (l > _MEM_COPY_SZ) l = _MEM_COPY_SZ;
                         setMemoryBank(sb, false);
                         memcpy(buf, s, l);
                         setMemoryBank(mb, false);

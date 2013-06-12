@@ -98,10 +98,20 @@
 #define CLK_prescale64          ((1 << WGM12) | (1 << CS10) | (1 << CS11))
 #define CLK_prescale256         ((1 << WGM12) | (1 << CS12))
 #define CLK_prescale1024        ((1 << WGM12) | (1 << CS12) | (1 << CS10))
+
+// used to send bytes
 typedef struct {
-        uint8_t volatile data;
-        boolean volatile ready;
-} pipe;
+        uint8_t volatile data; // the data to transfer
+        boolean volatile ready; // data available
+} pipe_stream;
+
+// used to send a chunk of memory in a controlled way
+typedef struct {
+        uint8_t volatile *data; // pointer to the data available
+        int volatile data_len; // length to copy
+        uint8_t bank; // bank the data is in
+        boolean volatile ready; // data available
+} memory_stream;
 
 // How fast to task switch? uncomment to use 50us
 //#define fiftyus
@@ -170,12 +180,20 @@ namespace xmem {
         uint8_t Task_State(uint8_t which);
         boolean Task_Is_Mine(uint8_t which);
         void Yield(void);
-        boolean pipe_ready(pipe *p);
-        void pipe_init(pipe *p);
-        void pipe_put(uint8_t c, pipe *p);
-        uint8_t pipe_get(pipe *p);
-        void send_message(uint8_t *message, int len, pipe *p);
-        int recv_message(uint8_t **message, pipe *p);
+        boolean pipe_ready(pipe_stream *p);
+        void pipe_init(pipe_stream *p);
+        void pipe_put(uint8_t c, pipe_stream *p);
+        uint8_t pipe_get(pipe_stream *p);
+        void pipe_send_message(uint8_t *message, int len, pipe_stream *p);
+        int pipe_recv_message(uint8_t **message, pipe_stream *p);
+        void memory_init(memory_stream *p);
+        boolean memory_ready(memory_stream *p);
+        void memory_send(uint8_t *data, int len, memory_stream *p);
+        int memory_recv(uint8_t **data, memory_stream *p);
+        void copy_to_task(void *d, void *s, size_t len, uint8_t db);
+        void copy_from_task(void *d, void *s, size_t len, uint8_t sb);
+
+
 #endif
 
 #if WANT_TEST_CODE
