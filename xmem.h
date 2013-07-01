@@ -100,12 +100,14 @@
 #define CLK_prescale1024        ((1 << WGM12) | (1 << CS12) | (1 << CS10))
 
 // used to send bytes
+
 typedef struct {
         uint8_t volatile data; // the data to transfer
         boolean volatile ready; // data available
 } pipe_stream;
 
 // used to send a chunk of memory in a controlled way
+
 typedef struct {
         uint8_t volatile *data; // pointer to the data available
         int volatile data_len; // length to copy
@@ -113,18 +115,26 @@ typedef struct {
         boolean volatile ready; // data available
 } memory_stream;
 
-// How fast to task switch? uncomment to use 50us
+// How fast to task switch? 100us is highly recommended, 10us is NOT. You've been warned.
+#define hundredus
 //#define fiftyus
+
+#ifdef hundredus
+// 100us
+// (0.001/(1/((16 *(10^6)) / 8))) - 1 = 1999
+#define CLK_CMP ((((F_CPU) / 8) / 1000) - 1)
+#else
+#define fiftyus
 #ifdef fiftyus
 // 50us
 // (0.0005/(1/((16 *(10^6)) / 8))) - 1 = 999
-#define CLK_CMP 999
+#define CLK_CMP ((((F_CPU) / 8) / 2000) - 1)
 #else
 // 10us
 // (0.0001/(1/((16 *(10^6)) / 8))) - 1 = 199
-#define CLK_CMP 199
+#define CLK_CMP ((((F_CPU) / 8) / 10000) - 1)
 #endif
-
+#endif
 
 #define XMEM_STACK_TOP          (0x7FFF + EXT_RAM_STACK_ARENA)
 #define XMEM_START              ((void *)(XMEM_STACK_TOP + 1))
@@ -135,6 +145,7 @@ typedef struct {
 #define XMEM_STATE_DEAD         0x81
 #define XMEM_STATE_SLEEP        0x82
 #define XMEM_STATE_WAKE         0x83
+#define XMEM_STATE_YIELD        0x84
 #endif
 
 
@@ -142,6 +153,12 @@ typedef struct {
 #include <stdint.h>
 
 namespace xmem {
+
+        /*
+         * The currently selected bank (Also current task for multitasking)
+         */
+
+        uint8_t getcurrentBank(void);
 
         /*
          * State variables used by the heap
@@ -219,10 +236,9 @@ namespace xmem {
 extern "C" {
         extern void *__flp;
         extern void *__brkval;
-}
 #if defined(USE_MULTIPLE_APP_API)
-extern volatile unsigned int keepstack; // original stack pointer on the avr.
-
+        extern volatile unsigned int keepstack; // original stack pointer on the avr.
 #endif
+}
 
 #endif

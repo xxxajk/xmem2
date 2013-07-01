@@ -46,7 +46,9 @@
 #include <avr/interrupt.h>
 #define XMEM_MAX_BANK_HEAPS USE_MULTIPLE_APP_API
 #include <alloca.h>
-volatile unsigned int keepstack; // original stack pointer on the avr.
+extern "C" {
+        volatile unsigned int keepstack; // original stack pointer on the avr.
+}
 #endif
 
 
@@ -80,8 +82,14 @@ namespace xmem {
                 uint8_t state; // task state.
                 uint64_t sleep; // ms to sleep
                 uint8_t parent; // the task that started this task
+                volatile boolean *w_booly; // wait for this to become true
+                volatile boolean *w_booln; // wait for this to become false
         } volatile tasks[USE_MULTIPLE_APP_API];
 #endif
+
+        uint8_t getcurrentBank(void) {
+                return currentBank;
+        }
 
         uint8_t Autosize(bool stackInXmem_) {
                 uint8_t banks = 0;
@@ -334,14 +342,14 @@ namespace xmem {
          * @param p memory copier pipe in AVR RAM
          */
         void memory_send(uint8_t *data, int len, memory_stream *p) {
-                while (p->ready); // Since multiple senders are possible, wait.
+                while (p->ready) xmem::Yield(); // Since multiple senders are possible, wait.
                 cli();
                 p->data = data;
                 p->data_len = len;
                 p->bank = currentBank;
                 p->ready = true;
                 sei();
-                while (p->ready); // Wait here, because caller may free right after!
+                while (p->ready) xmem::Yield(); // Wait here, because caller may free right after!
         }
 
         /**
@@ -352,16 +360,14 @@ namespace xmem {
          */
         int memory_recv(uint8_t **data, memory_stream *p) {
                 *data = (uint8_t *)malloc(p->data_len);
-                while (!p->ready);
-                copy_from_task(*data, (void *)(p->data), p->data_len, p->bank);
+                while (!p->ready) xmem::Yield();
+                xmem::copy_from_task(*data, (void *)(p->data), p->data_len, p->bank);
                 cli();
                 int len = p->data_len;
                 p->ready = false;
                 sei();
                 return len;
         }
-
-
 
 
 
@@ -438,7 +444,7 @@ namespace xmem {
          * @param p pipe in AVR RAM
          */
         void pipe_put(uint8_t c, pipe_stream *p) {
-                while (p->ready);
+                while (p->ready) xmem::Yield();
                 p->data = c;
                 p->ready = true;
         }
@@ -450,13 +456,15 @@ namespace xmem {
          */
         uint8_t pipe_get(pipe_stream *p) {
                 uint8_t c;
-                while (!p->ready);
+                while (!p->ready) xmem::Yield();
                 c = p->data;
                 p->ready = false;
                 return c;
         }
 
-#define _MEM_COPY_SZ 128
+        // TO-DO: find out why sizes > 87 causes problems, it shouldn't!
+        // There should be several kilobytes left.
+#define _RAM_COPY_SZ 64
 
         /**
          *
@@ -470,14 +478,14 @@ namespace xmem {
                 tasks[currentBank].sp = SP;
 
                 // dirty tricks department, simulate alloca
-                SP = keepstack - (1 + _MEM_COPY_SZ); // original on-chip ram
-                register void *buf;
-                buf = (void *)(keepstack - _MEM_COPY_SZ);
+                SP = keepstack - _RAM_COPY_SZ; // original on-chip ram
+                register void *buf = (void *)(SP);
+                SP--;
                 register uint8_t mb = currentBank;
                 register size_t l;
                 while (len) {
                         l = len;
-                        if (l > _MEM_COPY_SZ) l = _MEM_COPY_SZ;
+                        if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         setMemoryBank(mb, false);
                         memcpy(buf, s, l);
                         setMemoryBank(db, false);
@@ -503,15 +511,16 @@ namespace xmem {
                 tasks[currentBank].sp = SP;
 
                 // dirty tricks department, simulate alloca
-                SP = keepstack - (1 + _MEM_COPY_SZ); // original on-chip ram
-                register void *buf;
-                buf = (void *)(keepstack - _MEM_COPY_SZ);
+                SP = keepstack; // original on-chip ram
+                SP -= _RAM_COPY_SZ;
+                register void *buf = (void *)SP;
+                SP--;
 
                 register uint8_t mb = currentBank;
                 register size_t l;
                 while (len) {
                         l = len;
-                        if (l > _MEM_COPY_SZ) l = _MEM_COPY_SZ;
+                        if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         setMemoryBank(sb, false);
                         memcpy(buf, s, l);
                         setMemoryBank(mb, false);
@@ -576,29 +585,12 @@ namespace xmem {
         }
 
         /**
-         * Yield CPU to another task.
-         */
-        void Yield(void) {
-                cli();
-                register uint16_t rightnow = TCNT3 + 2;
-                TCNT3 = CLK_CMP - 1;
-                sei();
-                delayMicroseconds(10); // 5 microseconds * 2 == 2 ticks
-                //delayMicroseconds(5);
-                cli();
-                // Correct the clock as best we can after the forced tick
-                if (rightnow >= CLK_CMP) rightnow = CLK_CMP - 1;
-                TCNT3 = rightnow;
-                sei();
-        }
-
-        /**
          *
          * @param object Caution, must be in AVR RAM
          */
         void Lock_Acquire(uint8_t *object) {
 spin:
-                while (*object) Yield();
+                while (*object) xmem::Yield();
                 cli();
                 // Just in case...
                 if (*object) {
@@ -622,7 +614,8 @@ spin:
         /**
          * @param sleep how long to sleep for in milliseconds.
          *
-         * 10us setting (default):
+         * 10us setting:
+         * Warning, using this setting with Yield/Sleep can actually HURT performance!
          * Accuracy +/- 10us + context switch, and also depends on how many tasks are woken at the same time.
          *
          * The limit for 10us is 0ms to 1844674407370955161ms.
@@ -638,19 +631,25 @@ spin:
          * By then, you will be dead and the star known as Sol should have
          * exploded 284 to 288 billion years ago, give or take a billion years.
          *
+         * 100us setting, this is the default:
+         * do the math, roughly 2x the delay, half the resolution of 50us. Duh ;-)
+         *
          */
         void Sleep(uint64_t sleep) {
                 if (sleep == 0) return; // what? :-)
                 cli();
+#ifdef hundredus
+                tasks[currentBank].sleep = sleep;
+#else
 #ifdef fiftyus
                 tasks[currentBank].sleep = sleep * 2;
 #else
                 tasks[currentBank].sleep = sleep * 10;
 #endif
+#endif
                 tasks[currentBank].state = XMEM_STATE_SLEEP;
                 sei();
-                Yield();
-                while (tasks[currentBank].state == XMEM_STATE_SLEEP); // Guard, just in case...
+                while (tasks[currentBank].state == XMEM_STATE_SLEEP) xmem::Yield();
         }
 
         /**
@@ -677,8 +676,10 @@ spin:
         void PauseTask(uint8_t which) {
                 if (tasks[which].parent != currentBank) return;
                 cli();
-                if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
-                sei();
+                if (tasks[which].state == XMEM_STATE_RUNNING) {
+                        tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
+                        xmem::Yield();
+                } else sei();
         }
 
         /**
@@ -687,7 +688,8 @@ spin:
         void TaskFinish(void) {
                 cli();
                 tasks[currentBank].state = XMEM_STATE_DEAD; // dead
-                sei();
+                xmem::Yield();
+                // should never come here
                 for (;;);
         }
 
@@ -732,7 +734,7 @@ spin:
                         sei();
                         return 0; // FAIL!
                 }
-                for (i = 0; i < XMEM_MAX_BANK_HEAPS; i++) {
+                for (i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
                         if (i == currentBank) continue; // Don't free or check current task!
                         if (tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
                         if (tasks[i].state == XMEM_STATE_FREE) {
@@ -810,6 +812,8 @@ spin:
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(oldbank, false);
                                 SP = oldsp; // original stack
+                                tasks[currentBank].w_booly = NULL;
+                                tasks[currentBank].w_booln = NULL;
                                 sei();
                                 return i; // success
                         }
@@ -819,6 +823,9 @@ spin:
                 return 0; // fail, task zero is always taken.
         }
 
+
+        volatile boolean do_not_switch = false;
+        volatile boolean really_do_not_switch = false;
         // Task switch ISR, do what we need to do as fast as possible.
         // We count what we do in here as part of the task time.
         // Therefore, actual task time is variable.
@@ -865,40 +872,44 @@ spin:
                 asm volatile ("push r31");
 
                 register uint8_t check;
-                register uint8_t balance;
 
-                for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
-                        if (tasks[check].state == XMEM_STATE_SLEEP) {
-                                if (tasks[check].sleep == 0) {
-                                        tasks[check].state = XMEM_STATE_RUNNING;
-                                        break;
-                                }
-                                tasks[check].sleep--;
-                        }
-                }
-
-                if (check == XMEM_MAX_BANK_HEAPS) {
-                        // Check tasks after current.
-                        for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
-                                if (tasks[check].state == XMEM_STATE_RUNNING) break;
-                        }
+                if (tasks[currentBank].state != XMEM_STATE_RUNNING) {
+                        if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
+                        do_not_switch = true;
                 } else {
-                        // Decrement the remaining sleep counters.
-                        for (balance = check + 1; balance < XMEM_MAX_BANK_HEAPS; balance++) {
+                        for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
                                 if (tasks[check].state == XMEM_STATE_SLEEP) {
-                                        if (tasks[check].sleep == 0) continue;
-                                        else tasks[check].sleep--;
+                                        if (tasks[check].sleep == 0) {
+                                                tasks[check].state = XMEM_STATE_RUNNING;
+                                        } else {
+                                                tasks[check].sleep--;
+                                        }
                                 }
                         }
-
-                }
-                if (check == XMEM_MAX_BANK_HEAPS) {
-                        // Check tasks before current.
-                        for (check = 0; check < currentBank; check++) {
-                                if (tasks[check].state == XMEM_STATE_RUNNING) break;
-                        }
                 }
 
+                if(really_do_not_switch) {
+                        really_do_not_switch = false;
+                        if(!do_not_switch) goto flop; // task got remaining time, give more.
+                        // else we don't want it either...
+                }
+
+                if(do_not_switch) {
+                        // task yielded time. Don't switch context on _next_ IRQ
+                        really_do_not_switch = true;
+                        do_not_switch = false;
+                }
+
+                for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
+                        if (tasks[check].state == XMEM_STATE_RUNNING) goto flip;
+                }
+
+                // Check tasks before current.
+                for (check = 0; check < currentBank; check++) {
+                        if (tasks[check].state == XMEM_STATE_RUNNING) break;
+                }
+
+flip:
 
                 if (check != currentBank) { // skip if we are not context switching
                         tasks[currentBank].sp = SP;
@@ -906,6 +917,7 @@ spin:
                         setMemoryBank(check, true);
                         SP = tasks[currentBank].sp;
                 }
+flop:
                 // Again!
                 asm volatile ("pop r31");
                 asm volatile ("pop r30");
@@ -947,6 +959,17 @@ spin:
                 asm volatile ("pop r1");
                 asm volatile ("reti");
         }
+
+        /**
+         * Yield CPU to another task.
+         */
+        void Yield(void) {
+                cli();
+                if (tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
+                //__vector_32();
+                TIMER3_COMPA_vect();
+        }
+
 
 #else
 

@@ -10,7 +10,7 @@ int main(void) {
         if (xmem::getTotalBanks() == 0) goto no;
         if (XMEM_STACK_TOP == XRAMEND) goto no;
         cli();
-        asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
+        //asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
         asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
         asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
         asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
@@ -45,7 +45,7 @@ int main(void) {
         if (XMEM_STACK_TOP == XRAMEND) goto bad;
         cli();
         keepstack = SP;
-        asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
+        //asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
         asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
         asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
         asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
