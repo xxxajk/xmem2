@@ -82,8 +82,8 @@ namespace xmem {
                 uint8_t state; // task state.
                 uint64_t sleep; // ms to sleep
                 uint8_t parent; // the task that started this task
-                volatile boolean *w_booly; // wait for this to become true
-                volatile boolean *w_booln; // wait for this to become false
+                //volatile boolean *w_booly; // wait for this to become true
+                //volatile boolean *w_booln; // wait for this to become false
         } volatile tasks[USE_MULTIPLE_APP_API];
 #endif
 
@@ -313,6 +313,9 @@ namespace xmem {
 
 #if defined(XMEM_MULTIPLE_APP)
 
+        // copy buffer for bank <-> bank copy
+        static char cpybuf[_RAM_COPY_SZ + 8];
+
         // controlled memory transaction processing
 
         /**
@@ -462,10 +465,6 @@ namespace xmem {
                 return c;
         }
 
-        // TO-DO: find out why sizes > 87 causes problems, it shouldn't!
-        // There should be several kilobytes left.
-#define _RAM_COPY_SZ 64
-
         /**
          *
          * @param d destination address
@@ -478,21 +477,19 @@ namespace xmem {
                 tasks[currentBank].sp = SP;
 
                 // dirty tricks department, simulate alloca
-                SP = keepstack - _RAM_COPY_SZ; // original on-chip ram
-                register void *buf = (void *)(SP);
-                SP--;
+                SP = keepstack; // original on-chip ram
                 register uint8_t mb = currentBank;
                 register size_t l;
                 while (len) {
                         l = len;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         setMemoryBank(mb, false);
-                        memcpy(buf, s, l);
+                        memcpy(cpybuf, s, l);
                         setMemoryBank(db, false);
-                        memcpy(d, buf, l);
+                        memcpy(d, cpybuf, l);
                         len -= l;
-                        s = l + ((char *)s);
-                        d = l + ((char *)d);
+                        s = l + (char *)s;
+                        d = l + (char *)d;
                 }
                 setMemoryBank(mb, false);
                 SP = tasks[mb].sp;
@@ -510,24 +507,19 @@ namespace xmem {
                 cli();
                 tasks[currentBank].sp = SP;
 
-                // dirty tricks department, simulate alloca
                 SP = keepstack; // original on-chip ram
-                SP -= _RAM_COPY_SZ;
-                register void *buf = (void *)SP;
-                SP--;
-
                 register uint8_t mb = currentBank;
                 register size_t l;
                 while (len) {
                         l = len;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         setMemoryBank(sb, false);
-                        memcpy(buf, s, l);
+                        memcpy(cpybuf, s, l);
                         setMemoryBank(mb, false);
-                        memcpy(d, buf, l);
+                        memcpy(d, cpybuf, l);
                         len -= l;
-                        s = l + ((char *)s);
-                        d = l + ((char *)d);
+                        s = l + (char *)s;
+                        d = l + (char *)d;
                 }
                 SP = tasks[mb].sp;
                 sei();
@@ -654,15 +646,16 @@ spin:
 
         /**
          *
-         * @param which Task ID to start or continue after pausing.
+         * @param which Task ID to start or continue after pausing, wake sleep.
          *
-         * If task is not a child of this parent, do nothing.
+         * Do nothing if task is not a child of this parent, or the parent of this process
          *
          */
         void StartTask(uint8_t which) {
-                if (tasks[which].parent != currentBank) return;
+                if (tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
                 cli();
                 if (tasks[which].state == XMEM_STATE_PAUSED) tasks[which].state = XMEM_STATE_RUNNING; // running
+                else if (tasks[which].state == XMEM_STATE_SLEEP) tasks[which].state = XMEM_STATE_RUNNING; // running
                 sei();
         }
 
@@ -670,16 +663,15 @@ spin:
          *
          * @param which Task ID to pause
          *
-         * If task is not a child of this parent, do nothing.
+         * Do nothing if task is not a child of this parent, or the parent of this process
          *
          */
         void PauseTask(uint8_t which) {
-                if (tasks[which].parent != currentBank) return;
+                if (tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
+                while(tasks[which].state == XMEM_STATE_SLEEP) xmem::Yield();
                 cli();
-                if (tasks[which].state == XMEM_STATE_RUNNING) {
-                        tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
-                        xmem::Yield();
-                } else sei();
+                if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
+                sei();
         }
 
         /**
@@ -812,8 +804,8 @@ spin:
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(oldbank, false);
                                 SP = oldsp; // original stack
-                                tasks[currentBank].w_booly = NULL;
-                                tasks[currentBank].w_booln = NULL;
+                                //tasks[currentBank].w_booly = NULL;
+                                //tasks[currentBank].w_booln = NULL;
                                 sei();
                                 return i; // success
                         }
@@ -826,6 +818,8 @@ spin:
 
         volatile boolean do_not_switch = false;
         volatile boolean really_do_not_switch = false;
+
+
         // Task switch ISR, do what we need to do as fast as possible.
         // We count what we do in here as part of the task time.
         // Therefore, actual task time is variable.
@@ -875,7 +869,7 @@ spin:
 
                 if (tasks[currentBank].state != XMEM_STATE_RUNNING) {
                         if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
-                        do_not_switch = true;
+                        //do_not_switch = true;
                 } else {
                         for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
                                 if (tasks[check].state == XMEM_STATE_SLEEP) {
@@ -966,7 +960,6 @@ flop:
         void Yield(void) {
                 cli();
                 if (tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
-                //__vector_32();
                 TIMER3_COMPA_vect();
         }
 

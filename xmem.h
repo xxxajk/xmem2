@@ -22,6 +22,13 @@
 
 // <Settings>
 
+
+// How much AVR ram to use for bank<->bank copier, 8 more gets added to this amount.
+#ifndef _RAM_COPY_SZ
+#define _RAM_COPY_SZ 128
+#endif
+
+
 // Uncomment to always use.
 // It is much better to do this from the Makefile.
 // The number is maximal possible tasks.
