@@ -1,7 +1,7 @@
 xmem2
 =====
 
-xmem compatible library with autosize features.
+Arduino Mega 128x/256x xmem compatable library with autosize features and real preemptive multitasking.
 
 <pre>
 Supports both RuggedCircuits RAM expansions automatically.
