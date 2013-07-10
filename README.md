@@ -13,7 +13,7 @@ Stuff you can't do with the stock xmem:
      Supports moving the stack to external memory, You can even specify how much.
      Supports up to 16 preemptive tasks on a stock Quadram.
      Each task contains it's own stack and malloc arena.
-     CPU/Contest swithiching friendly Sleep()
+     CPU/Context switching friendly Sleep()
      Lock_Acquire(), Lock_Release(), Yield()
      Ability to determine parent task.
      Ability to detect when a task is running or done.
