@@ -25,7 +25,7 @@
 
 // How much AVR ram to use for bank<->bank copier, 8 more gets added to this amount.
 #ifndef _RAM_COPY_SZ
-#define _RAM_COPY_SZ 128
+#define _RAM_COPY_SZ 256
 #endif
 
 
@@ -106,14 +106,14 @@
 #define CLK_prescale256         ((1 << WGM12) | (1 << CS12))
 #define CLK_prescale1024        ((1 << WGM12) | (1 << CS12) | (1 << CS10))
 
-// used to send bytes
+// This structure is used to send single bytes between processes
 
 typedef struct {
         uint8_t volatile data; // the data to transfer
         boolean volatile ready; // data available
 } pipe_stream;
 
-// used to send a chunk of memory in a controlled way
+// This structure is used to send a chunk of memory between processes
 
 typedef struct {
         uint8_t volatile *data; // pointer to the data available
@@ -146,15 +146,15 @@ typedef struct {
 #define XMEM_STACK_TOP          (0x7FFF + EXT_RAM_STACK_ARENA)
 #define XMEM_START              ((void *)(XMEM_STACK_TOP + 1))
 #define XMEM_END                ((void *)0xFFFF)
-#define XMEM_STATE_FREE         0x00
-#define XMEM_STATE_PAUSED       0x01
-#define XMEM_STATE_RUNNING      0x80
-#define XMEM_STATE_DEAD         0x81
-#define XMEM_STATE_SLEEP        0x82
-#define XMEM_STATE_WAKE         0x83
-#define XMEM_STATE_YIELD        0x84
+#define XMEM_STATE_FREE         0x00 // Thread is not running, free slot to use.
+#define XMEM_STATE_PAUSED       0x01 // Thread is paused.
+#define XMEM_STATE_RUNNING      0x80 // Thread is running.
+#define XMEM_STATE_DEAD         0x81 // Thread has stopped running.
+#define XMEM_STATE_SLEEP        0x82 // Thread is sleeping.
+#define XMEM_STATE_WAKE         0x83 // Thread will be woken up on next context switch.
+#define XMEM_STATE_YIELD        0x84 // Thread is yielding control to another thread.
+#define XMEM_STATE_HOG_CPU      0x85 // Only run this thread, Don't context switch. This is a soft CLI.
 #endif
-
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -198,6 +198,8 @@ namespace xmem {
         void StartTask(uint8_t which);
         void PauseTask(uint8_t which);
         void TaskFinish(void);
+        void SoftCLI(void);
+        void SoftSEI(void);
         uint8_t Task_Parent();
         boolean Is_Running(uint8_t which);
         boolean Is_Done(uint8_t which);
@@ -244,7 +246,7 @@ extern "C" {
         extern void *__flp;
         extern void *__brkval;
 #if defined(USE_MULTIPLE_APP_API)
-        extern volatile unsigned int keepstack; // original stack pointer on the avr.
+        extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
 #endif
 }
 

@@ -39,7 +39,6 @@ no:
 #endif
 
 int main(void) {
-        //if (SP > XRAMEND) goto forever; // crash loop prevention.
         xmem::begin(true, true);
         if (xmem::getTotalBanks() == 0) goto bad;
         if (XMEM_STACK_TOP == XRAMEND) goto bad;

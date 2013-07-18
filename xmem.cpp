@@ -220,6 +220,40 @@ namespace xmem {
                 begin(heapInXmem_, EXT_RAM_STACK);
         }
 
+        // Switch memory bank, but do not record the bank
+
+        void flipBank(uint8_t bank_) {
+#if defined(EXT_RAM)
+                // switch in the new bank
+#if defined(RUGGED_CIRCUITS_SHIELD)
+                // Write lower 3 bits of 'bank' to upper 3 bits of Port L
+                PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
+#elif defined(ANDY_BROWN_SHIELD)
+                if ((bank_ & 1) != 0)
+                        PORTD |= _BV(PD7);
+                else
+                        PORTD &= ~_BV(PD7);
+
+                if ((bank_ & 2) != 0)
+                        PORTL |= _BV(PL7);
+                else
+                        PORTL &= ~_BV(PL7);
+
+                if ((bank_ & 4) != 0)
+                        PORTL |= _BV(PL6);
+                else
+                        PORTL &= ~_BV(PL6);
+#endif
+#if defined(XMEM_MULTIPLE_APP)
+                if (bank_ & (1 << 3)) {
+                        digitalWrite(30, HIGH);
+                } else {
+                        digitalWrite(30, LOW);
+                }
+#endif
+#endif
+        }
+
         /*
          * Set the memory bank
          */
@@ -272,7 +306,7 @@ namespace xmem {
                 currentBank = bank_;
 
                 if (switchHeap_)
-                        restoreHeap(currentBank);
+                        restoreHeap(bank_);
 #endif
         }
 
@@ -324,6 +358,27 @@ namespace xmem {
          */
         void memory_init(memory_stream *p) {
                 p->ready = false;
+        }
+
+        /**
+         *  Soft cli()-- Disallows context switching to another task.
+         *  This allows for large operations such as copy of memory areas,
+         *  so that the Arduino's millis() stuff gets updated.
+         */
+        void SoftCLI(void) {
+                cli();
+                tasks[currentBank].state = XMEM_STATE_HOG_CPU;
+                sei();
+        }
+
+        /**
+         *  Soft sei()-- Allows context switching to another task.
+         *  @see SoftCLI
+         */
+        void SoftSEI(void) {
+                cli();
+                tasks[currentBank].state = XMEM_STATE_RUNNING;
+                sei();
         }
 
         /**
@@ -473,27 +528,31 @@ namespace xmem {
          * @param db destination task
          */
         void copy_to_task(void *d, void *s, size_t len, uint8_t db) {
+                SoftCLI();
                 cli();
                 tasks[currentBank].sp = SP;
-
-                // dirty tricks department, simulate alloca
-                SP = keepstack; // original on-chip ram
+                sei();
                 register uint8_t mb = currentBank;
                 register size_t l;
                 while (len) {
                         l = len;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
-                        setMemoryBank(mb, false);
+                        cli();
+                        SP = keepstack; // original on-chip ram
                         memcpy(cpybuf, s, l);
-                        setMemoryBank(db, false);
+                        flipBank(db);
                         memcpy(d, cpybuf, l);
+                        flipBank(mb);
+                        SP = tasks[mb].sp;
+                        sei();
                         len -= l;
                         s = l + (char *)s;
                         d = l + (char *)d;
                 }
-                setMemoryBank(mb, false);
-                SP = tasks[mb].sp;
-                sei();
+                //cli();
+                //SP = tasks[mb].sp;
+                //sei();
+                SoftSEI();
         }
 
         /**
@@ -504,25 +563,31 @@ namespace xmem {
          * @param sb source task
          */
         void copy_from_task(void *d, void *s, size_t len, uint8_t sb) {
+                SoftCLI();
                 cli();
                 tasks[currentBank].sp = SP;
-
-                SP = keepstack; // original on-chip ram
+                sei();
                 register uint8_t mb = currentBank;
                 register size_t l;
                 while (len) {
                         l = len;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
-                        setMemoryBank(sb, false);
+                        cli();
+                        SP = keepstack; // original on-chip ram
+                        flipBank(sb);
                         memcpy(cpybuf, s, l);
-                        setMemoryBank(mb, false);
+                        flipBank(mb);
                         memcpy(d, cpybuf, l);
+                        SP = tasks[mb].sp;
+                        sei();
                         len -= l;
                         s = l + (char *)s;
                         d = l + (char *)d;
                 }
-                SP = tasks[mb].sp;
-                sei();
+                //cli();
+                //SP = tasks[mb].sp;
+                //sei();
+                SoftSEI();
         }
 
         /**
@@ -535,25 +600,25 @@ namespace xmem {
         /**
          *
          * @param which task ID
-         * @return is the child process is running.
+         * @return is the child or parent process is running.
          *
-         * Only the parent process should call this.
+         * Only the parent or child process should call this.
          */
         boolean Is_Running(uint8_t which) {
-                if (tasks[which].parent != currentBank) return false;
+                if ((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return false;
                 return (tasks[which].state == XMEM_STATE_RUNNING || tasks[which].state == XMEM_STATE_SLEEP);
         }
 
         /**
          *
          * @param which task ID
-         * @return the child process is done.
+         * @return is the child or parent process is done.
          *
-         * Only the parent should call this.
+         * Only the parent or child process should call this.
          *
          */
         boolean Is_Done(uint8_t which) {
-                if (tasks[which].parent != currentBank) return true;
+                if ((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return true;
                 return (tasks[which].state == XMEM_STATE_DEAD);
         }
 
@@ -668,7 +733,7 @@ spin:
          */
         void PauseTask(uint8_t which) {
                 if (tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
-                while(tasks[which].state == XMEM_STATE_SLEEP) xmem::Yield();
+                while (tasks[which].state == XMEM_STATE_SLEEP) xmem::Yield();
                 cli();
                 if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
                 sei();
@@ -867,9 +932,23 @@ spin:
 
                 register uint8_t check;
 
+
+                // Sleep state still needs to be tested. So I do that and get out as fast as I can.
+                if (tasks[currentBank].state == XMEM_STATE_HOG_CPU) {
+                        for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
+                                if (tasks[check].state == XMEM_STATE_SLEEP) {
+                                        if (tasks[check].sleep == 0) {
+                                                tasks[check].state = XMEM_STATE_RUNNING;
+                                        } else {
+                                                tasks[check].sleep--;
+                                        }
+                                }
+                        }
+                        goto flop;
+                }
+
                 if (tasks[currentBank].state != XMEM_STATE_RUNNING) {
                         if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
-                        //do_not_switch = true;
                 } else {
                         for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
                                 if (tasks[check].state == XMEM_STATE_SLEEP) {
@@ -882,13 +961,13 @@ spin:
                         }
                 }
 
-                if(really_do_not_switch) {
+                if (really_do_not_switch) {
                         really_do_not_switch = false;
-                        if(!do_not_switch) goto flop; // task got remaining time, give more.
+                        if (!do_not_switch) goto flop; // task got remaining time, give more.
                         // else we don't want it either...
                 }
 
-                if(do_not_switch) {
+                if (do_not_switch) {
                         // task yielded time. Don't switch context on _next_ IRQ
                         really_do_not_switch = true;
                         do_not_switch = false;
