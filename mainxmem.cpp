@@ -4,26 +4,27 @@
 #if !defined(XMEM_MULTIPLE_APP)
 
 int main(void) {
+        init();
+#if defined(USBCON)
+        USBDevice.attach();
+#endif
+
 #if defined(EXT_RAM)
         xmem::begin(EXT_RAM_HEAP, EXT_RAM_STACK);
 #if EXT_RAM_STACK
         if (xmem::getTotalBanks() == 0) goto no;
         if (XMEM_STACK_TOP == XRAMEND) goto no;
         cli();
-        //asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
-        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
-        asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
-        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
-        asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_LO_ADDR));
+        // Is this needed? Causes random crashes for me...
+        //asm volatile ( ".set    __stack, %0"    :: "i" (XMEM_STACK_TOP));
+        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP >> 8));
+        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
+        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
+        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_LO_ADDR));
         sei();
 #endif
 no:
 #endif
-        init();
-#if defined(USBCON)
-        USBDevice.attach();
-#endif
-
         setup();
 
         for (;;) {
@@ -39,21 +40,25 @@ no:
 #endif
 
 int main(void) {
-        xmem::begin(true, true);
-        if (xmem::getTotalBanks() == 0) goto bad;
-        if (XMEM_STACK_TOP == XRAMEND) goto bad;
         cli();
+
         keepstack = SP;
-        //asm volatile ( ".set __stack, %0" ::"i" (XMEM_STACK_TOP));
-        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
-        asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
-        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
-        asm volatile ( "out %0,16" ::"i" (AVR_STACK_POINTER_LO_ADDR));
         sei();
         init();
 #if defined(USBCON)
         USBDevice.attach();
 #endif
+        xmem::begin(true, true);
+        if (xmem::getTotalBanks() == 0) goto bad;
+        if (XMEM_STACK_TOP == XRAMEND) goto bad;
+        cli();
+        // Is this needed? Causes random crashes for me...
+        // asm volatile ( ".set    __stack, %0"    :: "i" (XMEM_STACK_TOP));
+        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP >> 8));
+        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
+        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
+        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_LO_ADDR));
+        sei();
 
         setup();
         // Set up task switching

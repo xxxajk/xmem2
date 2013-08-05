@@ -245,9 +245,9 @@ namespace xmem {
 extern "C" {
         extern void *__flp;
         extern void *__brkval;
+}
 #if defined(USE_MULTIPLE_APP_API)
         extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
 #endif
-}
 
 #endif

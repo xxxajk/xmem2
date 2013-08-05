@@ -45,10 +45,7 @@
 #else
 #include <avr/interrupt.h>
 #define XMEM_MAX_BANK_HEAPS USE_MULTIPLE_APP_API
-#include <alloca.h>
-extern "C" {
-        volatile unsigned int keepstack; // original stack pointer on the avr.
-}
+volatile unsigned int keepstack; // original stack pointer on the avr.
 #endif
 
 
@@ -85,6 +82,7 @@ namespace xmem {
                 //volatile boolean *w_booly; // wait for this to become true
                 //volatile boolean *w_booln; // wait for this to become false
         } volatile tasks[USE_MULTIPLE_APP_API];
+
 #endif
 
         uint8_t getcurrentBank(void) {
@@ -363,9 +361,9 @@ namespace xmem {
         /**
          *  Soft cli()-- Disallows context switching to another task.
          *  This allows for large operations such as copy of memory areas,
-         *  so that the Arduino's millis() stuff gets updated.
+         *  so that the Arduino's millis() gets updated, and other IRQ can happen.
          */
-        void SoftCLI(void) {
+        __inline__ void SoftCLI(void) {
                 cli();
                 tasks[currentBank].state = XMEM_STATE_HOG_CPU;
                 sei();
@@ -375,7 +373,7 @@ namespace xmem {
          *  Soft sei()-- Allows context switching to another task.
          *  @see SoftCLI
          */
-        void SoftSEI(void) {
+        __inline__ void SoftSEI(void) {
                 cli();
                 tasks[currentBank].state = XMEM_STATE_RUNNING;
                 sei();
@@ -417,11 +415,15 @@ namespace xmem {
          * @return length of message
          */
         int memory_recv(uint8_t **data, memory_stream *p) {
-                *data = (uint8_t *)malloc(p->data_len);
                 while (!p->ready) xmem::Yield();
+                *data = (uint8_t *)malloc(p->data_len);
+                if (*data == NULL) {
+                        Serial.write("OOM");
+                        for (;;);
+                }
                 xmem::copy_from_task(*data, (void *)(p->data), p->data_len, p->bank);
-                cli();
                 int len = p->data_len;
+                cli();
                 p->ready = false;
                 sei();
                 return len;
@@ -521,6 +523,7 @@ namespace xmem {
         }
 
         /**
+         * Copy a block of RAM to another tasks arena -- this is untested, but it probably works.
          *
          * @param d destination address
          * @param s source address
@@ -530,32 +533,33 @@ namespace xmem {
         void copy_to_task(void *d, void *s, size_t len, uint8_t db) {
                 SoftCLI();
                 cli();
-                tasks[currentBank].sp = SP;
-                sei();
                 register uint8_t mb = currentBank;
+                register unsigned int csp = SP;
+                register uint8_t ob = db;
                 register size_t l;
+                register char *ss = (char *)s;
+                register char *dd = (char *)d;
+                sei();
                 while (len) {
                         l = len;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
+                        memcpy(ss, cpybuf, l);
                         cli();
                         SP = keepstack; // original on-chip ram
-                        memcpy(cpybuf, s, l);
-                        flipBank(db);
-                        memcpy(d, cpybuf, l);
+                        flipBank(ob);
+                        memcpy(cpybuf, dd, l);
                         flipBank(mb);
-                        SP = tasks[mb].sp;
+                        SP = csp;
                         sei();
                         len -= l;
-                        s = l + (char *)s;
-                        d = l + (char *)d;
+                        ss += l;
+                        dd += l;
                 }
-                //cli();
-                //SP = tasks[mb].sp;
-                //sei();
                 SoftSEI();
         }
 
         /**
+         * Copy block of memory from another tasks arena.
          *
          * @param d destination address
          * @param s source address
@@ -563,30 +567,33 @@ namespace xmem {
          * @param sb source task
          */
         void copy_from_task(void *d, void *s, size_t len, uint8_t sb) {
+                asm volatile (""); // hint to GCC to not reorder.
                 SoftCLI();
                 cli();
-                tasks[currentBank].sp = SP;
-                sei();
                 register uint8_t mb = currentBank;
+                register unsigned int csp = SP;
+                register uint8_t ob = sb;
                 register size_t l;
+                register char *ss = (char *)s;
+                register char *dd = (char *)d;
+                sei();
                 while (len) {
                         l = len;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         cli();
-                        SP = keepstack; // original on-chip ram
-                        flipBank(sb);
-                        memcpy(cpybuf, s, l);
-                        flipBank(mb);
-                        memcpy(d, cpybuf, l);
-                        SP = tasks[mb].sp;
+                        SP = keepstack;
+                        flipBank(ob);
                         sei();
+                        memcpy(cpybuf, ss, l);
+                        cli();
+                        flipBank(mb);
+                        SP = csp;
+                        sei();
+                        memcpy(dd, cpybuf, l);
                         len -= l;
-                        s = l + (char *)s;
-                        d = l + (char *)d;
+                        ss += l;
+                        dd += l;
                 }
-                //cli();
-                //SP = tasks[mb].sp;
-                //sei();
                 SoftSEI();
         }
 
@@ -743,8 +750,10 @@ spin:
          * This is called when a task has exited.
          */
         void TaskFinish(void) {
+                Serial.write("Task ended");
                 cli();
                 tasks[currentBank].state = XMEM_STATE_DEAD; // dead
+                sei();
                 xmem::Yield();
                 // should never come here
                 for (;;);
@@ -775,9 +784,6 @@ spin:
         uint8_t SetupTask(void (*func)(void), unsigned int ofs) {
                 // r25:r24 contains func on 128x,
                 // r25:24:r22 for 256x?
-                static unsigned int oldsp;
-                static uint8_t oldbank;
-                static int i;
                 cli();
                 asm volatile ("push r24"); // lo8
                 asm volatile ("pop r4");
@@ -791,6 +797,9 @@ spin:
                         sei();
                         return 0; // FAIL!
                 }
+                register unsigned int oldsp;
+                register uint8_t oldbank;
+                register int i;
                 for (i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
                         if (i == currentBank) continue; // Don't free or check current task!
                         if (tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
@@ -804,7 +813,7 @@ spin:
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(i, false);
                                 setupHeap();
-                                SP = tasks[currentBank].sp;
+                                SP = tasks[i].sp;
 
                                 // Push task ending address. We lose r16 :-(
                                 asm volatile("ldi r16, lo8(%0)" ::"i" (TaskFinish));
@@ -933,21 +942,7 @@ spin:
                 register uint8_t check;
 
 
-                // Sleep state still needs to be tested. So I do that and get out as fast as I can.
-                if (tasks[currentBank].state == XMEM_STATE_HOG_CPU) {
-                        for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
-                                if (tasks[check].state == XMEM_STATE_SLEEP) {
-                                        if (tasks[check].sleep == 0) {
-                                                tasks[check].state = XMEM_STATE_RUNNING;
-                                        } else {
-                                                tasks[check].sleep--;
-                                        }
-                                }
-                        }
-                        goto flop;
-                }
-
-                if (tasks[currentBank].state != XMEM_STATE_RUNNING) {
+                if (tasks[currentBank].state != XMEM_STATE_RUNNING && tasks[currentBank].state != XMEM_STATE_HOG_CPU) {
                         if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
                 } else {
                         for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
@@ -961,18 +956,20 @@ spin:
                         }
                 }
 
-                if (really_do_not_switch) {
-                        really_do_not_switch = false;
-                        if (!do_not_switch) goto flop; // task got remaining time, give more.
-                        // else we don't want it either...
-                }
+                if (tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
+                /*
+                                if (really_do_not_switch) {
+                                        really_do_not_switch = false;
+                                        if (!do_not_switch) goto flop; // task got remaining time, give more.
+                                        // else we don't want it either...
+                                }
 
-                if (do_not_switch) {
-                        // task yielded time. Don't switch context on _next_ IRQ
-                        really_do_not_switch = true;
-                        do_not_switch = false;
-                }
-
+                                if (do_not_switch) {
+                                        // task yielded time. Don't switch context on _next_ IRQ
+                                        really_do_not_switch = true;
+                                        do_not_switch = false;
+                                }
+                 */
                 for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
                         if (tasks[check].state == XMEM_STATE_RUNNING) goto flip;
                 }
