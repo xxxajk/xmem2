@@ -4,6 +4,11 @@ xmem2
 Arduino Mega 128x/256x xmem compatable library with autosize features and real preemptive multitasking.
 
 <pre>
+* IMPORTANT! PLEASE USE Arduino 1.0.5 or better!
+* Older versions HAVE MAJOR BUGS AND WILL NOT WORK AT ALL!
+* Use of gcc-avr and lib-c that is newer than the Arduino version is even better.
+
+
 Supports both RuggedCircuits RAM expansions automatically.
 Supports Andy Brown's RAM expansion too.
 
