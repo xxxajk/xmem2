@@ -21,7 +21,6 @@
 #endif
 
 // <Settings>
-#define XMEM_MULTIPLE_APP
 
 // How much AVR ram to use for bank<->bank copier, 8 more gets added to this amount.
 #ifndef _RAM_COPY_SZ
