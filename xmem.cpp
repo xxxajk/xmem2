@@ -415,14 +415,27 @@ namespace xmem {
          * @return length of message
          */
         int memory_recv(uint8_t **data, memory_stream *p) {
+                int len;
                 while (!p->ready) xmem::Yield();
                 *data = (uint8_t *)malloc(p->data_len);
                 if (*data == NULL) {
                         Serial.write("OOM");
+                        Serial.flush();
                         for (;;);
                 }
-                xmem::copy_from_task(*data, (void *)(p->data), p->data_len, p->bank);
-                int len = p->data_len;
+                //SoftCLI();
+                //Serial.flush();
+                //printf(" | COPY %u bytes (%i)%p -> (%i)%p", p->data_len,  p->bank, (void *)(p->data), currentBank, data);
+                //Serial.flush();
+                //SoftSEI();
+
+                xmem::copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
+
+                //SoftCLI();
+                //printf(" | ");
+                //Serial.flush();
+                //SoftSEI();
+                len = p->data_len;
                 cli();
                 p->ready = false;
                 sei();
@@ -530,13 +543,13 @@ namespace xmem {
          * @param len length to copy
          * @param db destination task
          */
-        void copy_to_task(void *d, void *s, size_t len, uint8_t db) {
+        void copy_to_task(void *d, void *s, uint16_t len, uint8_t db) {
                 SoftCLI();
                 cli();
                 register uint8_t mb = currentBank;
                 register unsigned int csp = SP;
                 register uint8_t ob = db;
-                register size_t l;
+                register uint16_t l;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 sei();
@@ -566,14 +579,14 @@ namespace xmem {
          * @param len length to copy
          * @param sb source task
          */
-        void copy_from_task(void *d, void *s, size_t len, uint8_t sb) {
+        void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb) {
                 asm volatile (""); // hint to GCC to not reorder.
                 SoftCLI();
                 cli();
                 register uint8_t mb = currentBank;
                 register unsigned int csp = SP;
                 register uint8_t ob = sb;
-                register size_t l;
+                register uint16_t l;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 sei();

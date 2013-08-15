@@ -21,7 +21,7 @@
 #endif
 
 // <Settings>
-
+#define XMEM_MULTIPLE_APP
 
 // How much AVR ram to use for bank<->bank copier, 8 more gets added to this amount.
 #ifndef _RAM_COPY_SZ
@@ -216,8 +216,8 @@ namespace xmem {
         boolean memory_ready(memory_stream *p);
         void memory_send(uint8_t *data, int len, memory_stream *p);
         int memory_recv(uint8_t **data, memory_stream *p);
-        void copy_to_task(void *d, void *s, size_t len, uint8_t db);
-        void copy_from_task(void *d, void *s, size_t len, uint8_t sb);
+        void copy_to_task(void *d, void *s, uint16_t len, uint8_t db);
+        void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb);
 
 
 #endif
