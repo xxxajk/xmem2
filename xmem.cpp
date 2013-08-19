@@ -46,6 +46,7 @@
 #include <avr/interrupt.h>
 #define XMEM_MAX_BANK_HEAPS USE_MULTIPLE_APP_API
 volatile unsigned int keepstack; // original stack pointer on the avr.
+static char cpybuf[_RAM_COPY_SZ + 8]; // copy buffer for bank <-> bank copy
 #endif
 
 
@@ -81,7 +82,9 @@ namespace xmem {
                 uint8_t parent; // the task that started this task
                 //volatile boolean *w_booly; // wait for this to become true
                 //volatile boolean *w_booln; // wait for this to become false
-        } volatile tasks[USE_MULTIPLE_APP_API];
+        };
+
+        volatile task tasks[USE_MULTIPLE_APP_API];
 
 #endif
 
@@ -345,9 +348,6 @@ namespace xmem {
 
 #if defined(XMEM_MULTIPLE_APP)
 
-        // copy buffer for bank <-> bank copy
-        static char cpybuf[_RAM_COPY_SZ + 8];
-
         // controlled memory transaction processing
 
         /**
@@ -363,7 +363,7 @@ namespace xmem {
          *  This allows for large operations such as copy of memory areas,
          *  so that the Arduino's millis() gets updated, and other IRQ can happen.
          */
-        __inline__ void SoftCLI(void) {
+        void SoftCLI(void) {
                 cli();
                 tasks[currentBank].state = XMEM_STATE_HOG_CPU;
                 sei();
@@ -373,7 +373,7 @@ namespace xmem {
          *  Soft sei()-- Allows context switching to another task.
          *  @see SoftCLI
          */
-        __inline__ void SoftSEI(void) {
+        void SoftSEI(void) {
                 cli();
                 tasks[currentBank].state = XMEM_STATE_RUNNING;
                 sei();
@@ -415,7 +415,6 @@ namespace xmem {
          * @return length of message
          */
         int memory_recv(uint8_t **data, memory_stream *p) {
-                int len;
                 while (!p->ready) xmem::Yield();
                 *data = (uint8_t *)malloc(p->data_len);
                 if (*data == NULL) {
@@ -423,20 +422,22 @@ namespace xmem {
                         Serial.flush();
                         for (;;);
                 }
-                //SoftCLI();
-                //Serial.flush();
-                //printf(" | COPY %u bytes (%i)%p -> (%i)%p", p->data_len,  p->bank, (void *)(p->data), currentBank, data);
-                //Serial.flush();
-                //SoftSEI();
+//                SoftCLI();
+//                Serial.flush();
+//                printf(" | COPY %u bytes (%i)%p -> (%i)%p, SP = %x", p->data_len,  p->bank, (void *)(p->data), currentBank, *data, SP);
+//                printf(" | %i %p, SP = %x", currentBank, *data, SP);
+//                Serial.flush();
+//                SoftSEI();
 
                 xmem::copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
 
-                //SoftCLI();
-                //printf(" | ");
-                //Serial.flush();
-                //SoftSEI();
-                len = p->data_len;
+//                SoftCLI();
+//                printf(" | ");
+//                Serial.flush();
+//                SoftSEI();
+
                 cli();
+                register int len = p->data_len;
                 p->ready = false;
                 sei();
                 return len;
@@ -560,7 +561,9 @@ namespace xmem {
                         cli();
                         SP = keepstack; // original on-chip ram
                         flipBank(ob);
+                        sei();
                         memcpy(cpybuf, dd, l);
+                        cli();
                         flipBank(mb);
                         SP = csp;
                         sei();
@@ -580,15 +583,16 @@ namespace xmem {
          * @param sb source task
          */
         void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb) {
-                asm volatile (""); // hint to GCC to not reorder.
+                //asm volatile (""); // hint to GCC to not reorder.
                 SoftCLI();
+                //asm volatile("" :: : "memory"); // hint to GCC to not reorder.
                 cli();
                 register uint8_t mb = currentBank;
-                register unsigned int csp = SP;
                 register uint8_t ob = sb;
                 register uint16_t l;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
+                register unsigned int csp = SP;
                 sei();
                 while (len) {
                         l = len;
@@ -820,12 +824,14 @@ spin:
                                 tasks[i].state = XMEM_STATE_PAUSED; // setting up/paused
                                 tasks[i].parent = currentBank; // parent
                                 tasks[i].sp = (0x7FFF + ofs);
+                                // (re)-set the arena pointers
+                                bankHeapStates[i].__malloc_heap_start = (char *)tasks[i].sp + 1;
+                                bankHeapStates[i].__brkval = bankHeapStates[i].__malloc_heap_start;
                                 // switch banks, and do setup
                                 oldbank = currentBank;
                                 oldsp = SP;
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(i, false);
-                                setupHeap();
                                 SP = tasks[i].sp;
 
                                 // Push task ending address. We lose r16 :-(
@@ -960,7 +966,7 @@ spin:
                 } else {
                         for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
                                 if (tasks[check].state == XMEM_STATE_SLEEP) {
-                                        if (tasks[check].sleep == 0) {
+                                        if (tasks[check].sleep == 0llu) {
                                                 tasks[check].state = XMEM_STATE_RUNNING;
                                         } else {
                                                 tasks[check].sleep--;
