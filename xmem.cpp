@@ -49,6 +49,26 @@ volatile unsigned int keepstack; // original stack pointer on the avr.
 static char cpybuf[_RAM_COPY_SZ + 8]; // copy buffer for bank <-> bank copy
 #endif
 
+extern "C" {
+
+        unsigned int getHeapend() {
+                extern unsigned int __heap_start;
+
+                if ((unsigned int)__brkval == 0) {
+                        return (unsigned int)&__heap_start;
+                } else {
+                        return (unsigned int)__brkval;
+                }
+        }
+
+        unsigned int freeHeap() {
+                if (SP < (unsigned int)__malloc_heap_start) {
+                        return ((unsigned int)__malloc_heap_end - getHeapend());
+                } else {
+                        return (SP - getHeapend());
+                }
+        }
+}
 
 namespace xmem {
 
@@ -203,6 +223,11 @@ namespace xmem {
 
                         for (bank = 0; bank < totalBanks; bank++) {
                                 saveHeap(bank);
+#if !defined(XMEM_MULTIPLE_APP)
+                        if (heapInXmem_)
+#endif
+                                bankHeapStates[bank].__flp = NULL; // All new arena stuff!
+
 #if defined(USE_MULTIPLE_APP_API)
                                 if (bank < USE_MULTIPLE_APP_API) {
                                         tasks[bank].state = XMEM_STATE_FREE; // Not in use.
@@ -346,7 +371,20 @@ namespace xmem {
 
         }
 
+
 #if defined(XMEM_MULTIPLE_APP)
+
+        /* comming soon...
+        void Dump_one(int id) {
+                cli();
+                register uint16_t start = bankHeapStates[id].__malloc_heap_start;
+                register uint16_t end = bankHeapStates[id].__malloc_heap_end;
+                register uint16_t bk = bankHeapStates[id].__brkval;
+                register uint16_t sk = ...
+                sei();
+        }
+         *
+         */
 
         // controlled memory transaction processing
 
@@ -422,19 +460,19 @@ namespace xmem {
                         Serial.flush();
                         for (;;);
                 }
-//                SoftCLI();
-//                Serial.flush();
-//                printf(" | COPY %u bytes (%i)%p -> (%i)%p, SP = %x", p->data_len,  p->bank, (void *)(p->data), currentBank, *data, SP);
-//                printf(" | %i %p, SP = %x", currentBank, *data, SP);
-//                Serial.flush();
-//                SoftSEI();
+                //                SoftCLI();
+                //                Serial.flush();
+                //                printf(" | COPY %u bytes (%i)%p -> (%i)%p, SP = %x", p->data_len,  p->bank, (void *)(p->data), currentBank, *data, SP);
+                //                printf(" | %i %p, SP = %x", currentBank, *data, SP);
+                //                Serial.flush();
+                //                SoftSEI();
 
                 xmem::copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
 
-//                SoftCLI();
-//                printf(" | ");
-//                Serial.flush();
-//                SoftSEI();
+                //                SoftCLI();
+                //                printf(" | ");
+                //                Serial.flush();
+                //                SoftSEI();
 
                 cli();
                 register int len = p->data_len;
@@ -827,6 +865,7 @@ spin:
                                 // (re)-set the arena pointers
                                 bankHeapStates[i].__malloc_heap_start = (char *)tasks[i].sp + 1;
                                 bankHeapStates[i].__brkval = bankHeapStates[i].__malloc_heap_start;
+                                bankHeapStates[i].__flp = NULL;
                                 // switch banks, and do setup
                                 oldbank = currentBank;
                                 oldsp = SP;
