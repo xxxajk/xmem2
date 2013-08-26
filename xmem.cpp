@@ -456,7 +456,10 @@ namespace xmem {
                 while (!p->ready) xmem::Yield();
                 *data = (uint8_t *)malloc(p->data_len);
                 if (*data == NULL) {
-                        Serial.write("OOM");
+                        Serial.write("\r\n\r\nOOM LEN=");
+                        Serial.println(p->data_len);
+                        Serial.write("PID=");
+                        Serial.println(currentBank);
                         Serial.flush();
                         for (;;);
                 }
@@ -621,9 +624,7 @@ namespace xmem {
          * @param sb source task
          */
         void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb) {
-                //asm volatile (""); // hint to GCC to not reorder.
                 SoftCLI();
-                //asm volatile("" :: : "memory"); // hint to GCC to not reorder.
                 cli();
                 register uint8_t mb = currentBank;
                 register uint8_t ob = sb;
@@ -893,14 +894,16 @@ spin:
 
                                 // fill in all registers.
                                 // I save all because I may want to do tricks later on.
-                                asm volatile ("push r1");
                                 asm volatile ("push r0");
+                                asm volatile ("push r1");
+
                                 asm volatile ("in r0, __SREG__");
                                 asm volatile ("cli");
                                 asm volatile ("push r0");
                                 asm volatile ("in r0 , 0x3b");
                                 asm volatile ("push r0");
                                 asm volatile ("in r0 , 0x3c");
+
                                 asm volatile ("push r0");
                                 asm volatile ("push r2");
                                 asm volatile ("push r3");
@@ -957,8 +960,8 @@ spin:
         // Therefore, actual task time is variable.
 
         ISR(TIMER3_COMPA_vect, ISR_NAKED) {
-                asm volatile ("push r1");
                 asm volatile ("push r0");
+                asm volatile ("push r1");
                 asm volatile ("in r0, __SREG__");
                 asm volatile ("cli");
                 asm volatile ("push r0");
@@ -1083,8 +1086,8 @@ flop:
                 asm volatile ("out 0x3b , r0");
                 asm volatile ("pop r0");
                 asm volatile ("out __SREG__ , r0");
-                asm volatile ("pop r0");
                 asm volatile ("pop r1");
+                asm volatile ("pop r0");
                 asm volatile ("reti");
         }
 

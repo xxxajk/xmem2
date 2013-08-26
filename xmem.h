@@ -116,8 +116,8 @@ typedef struct {
 
 typedef struct {
         uint8_t volatile *data; // pointer to the data available
-        int volatile data_len; // length to copy
-        uint8_t bank; // bank the data is in
+        uint16_t volatile data_len; // length to copy
+        uint8_t volatile bank; // bank the data is in
         boolean volatile ready; // data available
 } memory_stream;
 
