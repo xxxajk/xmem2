@@ -432,37 +432,41 @@ namespace xmem {
         /**
          *
          * @param data data to copy
-         * @param len length of the data
+         * @param length length of the data
          * @param p memory copier pipe in AVR RAM
          */
-        void memory_send(uint8_t *data, int len, memory_stream *p) {
+        void memory_send(uint8_t *data, uint16_t length, memory_stream *p) {
                 while (p->ready) xmem::Yield(); // Since multiple senders are possible, wait.
                 cli();
                 p->data = data;
-                p->data_len = len;
+                p->data_len = length;
                 p->bank = currentBank;
                 p->ready = true;
                 sei();
                 while (p->ready) xmem::Yield(); // Wait here, because caller may free right after!
         }
 
+        void *safe_malloc(size_t x) {
+                void *data = malloc(x);
+                if (data == NULL) {
+                        Serial.write("\r\n\r\nOOM LEN=");
+                        Serial.println(x);
+                        Serial.write("PID=");
+                        Serial.println(currentBank);
+                        Serial.flush();
+                        for (;;);
+                }
+                return data;
+        }
         /**
          *
          * @param data pointer to be allocated
          * @param p memory copier pipe in AVR RAM
          * @return length of message
          */
-        int memory_recv(uint8_t **data, memory_stream *p) {
+        uint16_t memory_recv(uint8_t **data, memory_stream *p) {
                 while (!p->ready) xmem::Yield();
-                *data = (uint8_t *)malloc(p->data_len);
-                if (*data == NULL) {
-                        Serial.write("\r\n\r\nOOM LEN=");
-                        Serial.println(p->data_len);
-                        Serial.write("PID=");
-                        Serial.println(currentBank);
-                        Serial.flush();
-                        for (;;);
-                }
+                *data = (uint8_t *)safe_malloc(p->data_len);
                 //                SoftCLI();
                 //                Serial.flush();
                 //                printf(" | COPY %u bytes (%i)%p -> (%i)%p, SP = %x", p->data_len,  p->bank, (void *)(p->data), currentBank, *data, SP);
@@ -478,10 +482,10 @@ namespace xmem {
                 //                SoftSEI();
 
                 cli();
-                register int len = p->data_len;
+                register uint16_t length = p->data_len;
                 p->ready = false;
                 sei();
-                return len;
+                return length;
         }
 
 
@@ -516,7 +520,7 @@ namespace xmem {
                 len = xmem::pipe_get(p);
                 len += xmem::pipe_get(p) << 8;
                 rv = len;
-                *message = (uint8_t *)malloc(len);
+                *message = (uint8_t *)safe_malloc(len);
                 uint8_t *ptr = *message;
                 while (len) {
                         *ptr = xmem::pipe_get(p);
@@ -582,21 +586,20 @@ namespace xmem {
          *
          * @param d destination address
          * @param s source address
-         * @param len length to copy
+         * @param length length to copy
          * @param db destination task
          */
-        void copy_to_task(void *d, void *s, uint16_t len, uint8_t db) {
+        void copy_to_task(void *d, void *s, uint16_t length, uint8_t db) {
                 SoftCLI();
                 cli();
                 register uint8_t mb = currentBank;
                 register unsigned int csp = SP;
                 register uint8_t ob = db;
-                register uint16_t l;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 sei();
-                while (len) {
-                        l = len;
+                while (length) {
+                        register uint16_t l = length;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         memcpy(ss, cpybuf, l);
                         cli();
@@ -608,7 +611,7 @@ namespace xmem {
                         flipBank(mb);
                         SP = csp;
                         sei();
-                        len -= l;
+                        length -= l;
                         ss += l;
                         dd += l;
                 }
@@ -620,21 +623,20 @@ namespace xmem {
          *
          * @param d destination address
          * @param s source address
-         * @param len length to copy
+         * @param length length to copy
          * @param sb source task
          */
-        void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb) {
+        void copy_from_task(void *d, void *s, uint16_t length, uint8_t sb) {
                 SoftCLI();
                 cli();
                 register uint8_t mb = currentBank;
                 register uint8_t ob = sb;
-                register uint16_t l;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 register unsigned int csp = SP;
                 sei();
-                while (len) {
-                        l = len;
+                while (length) {
+                        register uint16_t l = length;
                         if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         cli();
                         SP = keepstack;
@@ -646,7 +648,7 @@ namespace xmem {
                         SP = csp;
                         sei();
                         memcpy(dd, cpybuf, l);
-                        len -= l;
+                        length -= l;
                         ss += l;
                         dd += l;
                 }

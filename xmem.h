@@ -213,10 +213,13 @@ namespace xmem {
         int pipe_recv_message(uint8_t **message, pipe_stream *p);
         void memory_init(memory_stream *p);
         boolean memory_ready(memory_stream *p);
-        void memory_send(uint8_t *data, int len, memory_stream *p);
-        int memory_recv(uint8_t **data, memory_stream *p);
+        void memory_send(uint8_t *data, uint16_t len, memory_stream *p);
+        uint16_t memory_recv(uint8_t **data, memory_stream *p);
         void copy_to_task(void *d, void *s, uint16_t len, uint8_t db);
         void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb);
+        void *safe_malloc(size_t x);
+        void SoftCLI(void);
+        void SoftSEI(void);
 
 
 #endif
