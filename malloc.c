@@ -41,6 +41,8 @@
 
 #include <avr/io.h>
 #include <util/atomic.h>
+#define XATOMIC_BLOCK(type) type, __ToDo; for (__ToDo = __iCliRetVal(); \
+	                       __ToDo ; __ToDo = 0 )
 
 /*
  * Exported interface:
@@ -387,7 +389,7 @@ void *
 malloc(size_t len)
 {
         register void *p;
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        XATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
                 p = _malloc(len);
         }
         return p;
@@ -397,7 +399,7 @@ ATTRIBUTE_CLIB_SECTION
 void
 free(void *p)
 {
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        XATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
                 _free(p);
         }
 }
@@ -406,7 +408,7 @@ ATTRIBUTE_CLIB_SECTION
 void *
 realloc(void *ptr, size_t len) {
         register void *p;
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+        XATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
                 p = _realloc(ptr, len);
         }
         return p;
