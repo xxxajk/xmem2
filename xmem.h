@@ -105,22 +105,6 @@
 #define CLK_prescale256         ((1 << WGM12) | (1 << CS12))
 #define CLK_prescale1024        ((1 << WGM12) | (1 << CS12) | (1 << CS10))
 
-// This structure is used to send single bytes between processes
-
-typedef struct {
-        uint8_t volatile data; // the data to transfer
-        boolean volatile ready; // data available
-} pipe_stream;
-
-// This structure is used to send a chunk of memory between processes
-
-typedef struct {
-        uint8_t volatile *data; // pointer to the data available
-        uint16_t volatile data_len; // length to copy
-        uint8_t volatile bank; // bank the data is in
-        boolean volatile ready; // data available
-} memory_stream;
-
 // How fast to task switch? 100us is highly recommended, 10us is NOT. You've been warned.
 #define hundredus
 //#define fiftyus
@@ -158,7 +142,32 @@ typedef struct {
 #include <stdlib.h>
 #include <stdint.h>
 
-namespace xmem {
+#if defined(USE_MULTIPLE_APP_API)
+        typedef struct {
+                volatile unsigned int sp; // stack pointer
+                volatile uint8_t state; // task state.
+                volatile uint8_t parent; // the task that started this task
+                volatile uint64_t sleep; // ms to sleep
+        } task;
+
+        // This structure is used to send single bytes between processes
+
+        typedef struct {
+                uint8_t volatile data; // the data to transfer
+                boolean volatile ready; // data available
+        } pipe_stream;
+
+        // This structure is used to send a chunk of memory between processes
+
+        typedef struct {
+                uint8_t volatile *data; // pointer to the data available
+                uint16_t volatile data_len; // length to copy
+                uint8_t volatile bank; // bank the data is in
+                boolean volatile ready; // data available
+        } memory_stream;
+#endif
+
+        namespace xmem {
 
         /*
          * The currently selected bank (Also current task for multitasking)
@@ -249,7 +258,7 @@ extern "C" {
         extern void *__brkval;
 }
 #if defined(USE_MULTIPLE_APP_API)
-        extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
+extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
 #endif
 
 #endif

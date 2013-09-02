@@ -89,25 +89,17 @@ namespace xmem {
          */
         uint8_t totalBanks;
 
+        /*
+         * Multitasking tracking
+         */
+#ifdef USE_MULTIPLE_APP_API
+        volatile task tasks[USE_MULTIPLE_APP_API];
+#endif
+
         /* Auto-size how many banks we have.
          * Note that 256 banks is not possible due to the limits of uint8_t.
          * However this code is future-proof for very large external RAM.
          */
-#ifdef USE_MULTIPLE_APP_API
-
-        struct task {
-                unsigned int sp; // stack pointer
-                uint8_t state; // task state.
-                uint64_t sleep; // ms to sleep
-                uint8_t parent; // the task that started this task
-                //volatile boolean *w_booly; // wait for this to become true
-                //volatile boolean *w_booln; // wait for this to become false
-        };
-
-        volatile task tasks[USE_MULTIPLE_APP_API];
-
-#endif
-
         uint8_t getcurrentBank(void) {
                 return currentBank;
         }
@@ -224,9 +216,9 @@ namespace xmem {
                         for (bank = 0; bank < totalBanks; bank++) {
                                 saveHeap(bank);
 #if !defined(XMEM_MULTIPLE_APP)
-                        if (heapInXmem_)
+                                if (heapInXmem_)
 #endif
-                                bankHeapStates[bank].__flp = NULL; // All new arena stuff!
+                                        bankHeapStates[bank].__flp = NULL; // All new arena stuff!
 
 #if defined(USE_MULTIPLE_APP_API)
                                 if (bank < USE_MULTIPLE_APP_API) {
@@ -436,14 +428,14 @@ namespace xmem {
          * @param p memory copier pipe in AVR RAM
          */
         void memory_send(uint8_t *data, uint16_t length, memory_stream *p) {
-                while (p->ready) xmem::Yield(); // Since multiple senders are possible, wait.
+                while (p->ready) Yield(); // Since multiple senders are possible, wait.
                 cli();
                 p->data = data;
                 p->data_len = length;
                 p->bank = currentBank;
                 p->ready = true;
                 sei();
-                while (p->ready) xmem::Yield(); // Wait here, because caller may free right after!
+                while (p->ready) Yield(); // Wait here, because caller may free right after!
         }
 
         void *safe_malloc(size_t x) {
@@ -458,6 +450,7 @@ namespace xmem {
                 }
                 return data;
         }
+
         /**
          *
          * @param data pointer to be allocated
@@ -465,22 +458,9 @@ namespace xmem {
          * @return length of message
          */
         uint16_t memory_recv(uint8_t **data, memory_stream *p) {
-                while (!p->ready) xmem::Yield();
+                while (!p->ready) Yield();
                 *data = (uint8_t *)safe_malloc(p->data_len);
-                //                SoftCLI();
-                //                Serial.flush();
-                //                printf(" | COPY %u bytes (%i)%p -> (%i)%p, SP = %x", p->data_len,  p->bank, (void *)(p->data), currentBank, *data, SP);
-                //                printf(" | %i %p, SP = %x", currentBank, *data, SP);
-                //                Serial.flush();
-                //                SoftSEI();
-
-                xmem::copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
-
-                //                SoftCLI();
-                //                printf(" | ");
-                //                Serial.flush();
-                //                SoftSEI();
-
+                copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
                 cli();
                 register uint16_t length = p->data_len;
                 p->ready = false;
@@ -499,10 +479,10 @@ namespace xmem {
          * @param p pipe to send message on in AVR RAM
          */
         void pipe_send_message(uint8_t *message, int len, pipe_stream *p) {
-                xmem::pipe_put(len & 0xff, p);
-                xmem::pipe_put((len >> 8) & 0xff, p);
+                pipe_put(len & 0xff, p);
+                pipe_put((len >> 8) & 0xff, p);
                 while (len) {
-                        xmem::pipe_put(*message, p);
+                        pipe_put(*message, p);
                         message++;
                         len--;
                 }
@@ -517,13 +497,13 @@ namespace xmem {
         int pipe_recv_message(uint8_t **message, pipe_stream *p) {
                 int len;
                 int rv;
-                len = xmem::pipe_get(p);
-                len += xmem::pipe_get(p) << 8;
+                len = pipe_get(p);
+                len += pipe_get(p) << 8;
                 rv = len;
                 *message = (uint8_t *)safe_malloc(len);
                 uint8_t *ptr = *message;
                 while (len) {
-                        *ptr = xmem::pipe_get(p);
+                        *ptr = pipe_get(p);
                         ptr++;
                         len--;
                 }
@@ -563,7 +543,7 @@ namespace xmem {
          * @param p pipe in AVR RAM
          */
         void pipe_put(uint8_t c, pipe_stream *p) {
-                while (p->ready) xmem::Yield();
+                while (p->ready) Yield();
                 p->data = c;
                 p->ready = true;
         }
@@ -575,7 +555,7 @@ namespace xmem {
          */
         uint8_t pipe_get(pipe_stream *p) {
                 uint8_t c;
-                while (!p->ready) xmem::Yield();
+                while (!p->ready) Yield();
                 c = p->data;
                 p->ready = false;
                 return c;
@@ -712,7 +692,7 @@ namespace xmem {
          */
         void Lock_Acquire(uint8_t *object) {
 spin:
-                while (*object) xmem::Yield();
+                while (*object) Yield();
                 cli();
                 // Just in case...
                 if (*object) {
@@ -771,7 +751,7 @@ spin:
 #endif
                 tasks[currentBank].state = XMEM_STATE_SLEEP;
                 sei();
-                while (tasks[currentBank].state == XMEM_STATE_SLEEP) xmem::Yield();
+                while (tasks[currentBank].state == XMEM_STATE_SLEEP) Yield();
         }
 
         /**
@@ -798,7 +778,7 @@ spin:
          */
         void PauseTask(uint8_t which) {
                 if (tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
-                while (tasks[which].state == XMEM_STATE_SLEEP) xmem::Yield();
+                while (tasks[which].state == XMEM_STATE_SLEEP) Yield();
                 cli();
                 if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
                 sei();
@@ -812,7 +792,7 @@ spin:
                 cli();
                 tasks[currentBank].state = XMEM_STATE_DEAD; // dead
                 sei();
-                xmem::Yield();
+                Yield();
                 // should never come here
                 for (;;);
         }
@@ -953,8 +933,8 @@ spin:
         }
 
 
-        volatile boolean do_not_switch = false;
-        volatile boolean really_do_not_switch = false;
+        //volatile boolean do_not_switch = false;
+        //volatile boolean really_do_not_switch = false;
 
 
         // Task switch ISR, do what we need to do as fast as possible.
