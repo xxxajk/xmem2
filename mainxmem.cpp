@@ -2,7 +2,6 @@
 #include <xmem.h>
 
 #if !defined(XMEM_MULTIPLE_APP)
-
 int main(void) {
         init();
 #if defined(USBCON)

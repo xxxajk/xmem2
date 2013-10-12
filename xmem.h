@@ -8,18 +8,15 @@
  *  This work is licensed under a Creative Commons Attribution-ShareAlike 3.0 Unported License.
  */
 
-
-#ifndef __89089DA1_BAAC_497C_8E1FFEF0911A6844
-#define __89089DA1_BAAC_497C_8E1FFEF0911A6844
-
-#include <avr/io.h>
-
-#if defined(ARDUINO) && ARDUINO >=100
-#include <Arduino.h>
-#else
-#include <WProgram.h>
+#if !defined(ARDUINO)
+#error "Please upgrade your Arduino IDE to at least 1.0.5"
+#endif
+#if ARDUINO <= 104
+#error "Please upgrade your Arduino IDE to at least 1.0.5"
 #endif
 
+#ifndef XMEM_H
+#define XMEM_H
 // <Settings>
 
 // How much AVR ram to use for bank<->bank copier, 8 more gets added to this amount.
@@ -77,9 +74,24 @@
 #define EXT_RAM_STACK_ARENA 0x2000 // Default 8K stack, 24K malloc arena.
 #endif
 
+// Set to zero to save one byte of ram, reduces code size.
+// Warning: Don't set to zero if you share SPI devices.
+#ifndef XMEM_SPI_LOCK
+#define XMEM_SPI_LOCK 1
+#endif
+
+// Set to zero to save one byte of ram, reduces code size.
+// Warning: Don't set to zero if you share SPI devices.
+#ifndef XMEM_I2C_LOCK
+#define XMEM_I2C_LOCK 1
+#endif
+
+
 // set to 1 to include ram test code.
 #define WANT_TEST_CODE 0
 // </Settings> No user serviceable parts below this point.
+
+#include <Arduino.h>
 
 #if !defined(XRAMEND)
 #error "XRAMEND NOT DEFINED, SORRY I CAN NOT USE THIS TOOLCHAIN!"
@@ -99,6 +111,7 @@
 #define XMEM_END ((void *)0xFFFF)
 #endif
 #else
+
 #define CLK_prescale1           ((1 << WGM12) | (1 << CS10))
 #define CLK_prescale8           ((1 << WGM12) | (1 << CS11))
 #define CLK_prescale64          ((1 << WGM12) | (1 << CS10) | (1 << CS11))
@@ -198,8 +211,8 @@
         uint8_t getTotalBanks();
 
 #if defined(USE_MULTIPLE_APP_API)
-        void Lock_Acquire(uint8_t *object);
-        void Lock_Release(uint8_t *object);
+        void Lock_Acquire(volatile uint8_t *object);
+        void Lock_Release(volatile uint8_t *object);
         void Sleep(uint64_t sleep);
         uint8_t SetupTask(void (*func)(void), unsigned int ofs);
         uint8_t SetupTask(void (*func)(void));
@@ -229,8 +242,6 @@
         void *safe_malloc(size_t x);
         void SoftCLI(void);
         void SoftSEI(void);
-
-
 #endif
 
 #if WANT_TEST_CODE
@@ -259,6 +270,23 @@ extern "C" {
 }
 #if defined(USE_MULTIPLE_APP_API)
 extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
+#if XMEM_SPI_LOCK
+#include <SPI.h>
+#define XMEM_ACQUIRE_SPI(...) xmem::Lock_Acquire(&xmem_spi_lock)
+#define XMEM_RELEASE_SPI(...) xmem::Lock_Release(&xmem_spi_lock)
+extern volatile uint8_t xmem_spi_lock;
+#else
+#define XMEM_ACQUIRE_SPI(...) (void(0))
+#define XMEM_RELEASE_SPI(...) (void(0))
+#endif
+#if XMEM_I2C_LOCK
+#define XMEM_ACQUIRE_I2C(...) xmem::Lock_Acquire(&xmem_i2c_lock)
+#define XMEM_RELEASE_I2C(...) xmem::Lock_Release(&xmem_i2c_lock)
+extern volatile uint8_t xmem_i2c_lock;
+#else
+#define XMEM_ACQUIRE_I2C(...) (void(0))
+#define XMEM_RELEASE_I2C(...) (void(0))
+#endif
 #endif
 
 #endif

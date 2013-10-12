@@ -49,6 +49,10 @@ volatile unsigned int keepstack; // original stack pointer on the avr.
 static char cpybuf[_RAM_COPY_SZ + 8]; // copy buffer for bank <-> bank copy
 #endif
 
+#if XMEM_SPI_LOCK
+volatile uint8_t xmem_spi_lock = 0;
+#endif
+
 extern "C" {
 
         unsigned int getHeapend() {
@@ -690,15 +694,9 @@ namespace xmem {
          *
          * @param object Caution, must be in AVR RAM
          */
-        void Lock_Acquire(uint8_t *object) {
-spin:
-                while (*object) Yield();
+        void Lock_Acquire(volatile uint8_t *object) {
+                while (*object != 0) Yield();
                 cli();
-                // Just in case...
-                if (*object) {
-                        sei();
-                        goto spin;
-                }
                 *object = 1;
                 sei();
         }
@@ -707,7 +705,7 @@ spin:
          *
          * @param object Caution, must be in AVR RAM
          */
-        void Lock_Release(uint8_t *object) {
+        void Lock_Release(volatile uint8_t *object) {
                 cli();
                 *object = 0;
                 sei();
@@ -1000,19 +998,7 @@ spin:
                 }
 
                 if (tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
-                /*
-                                if (really_do_not_switch) {
-                                        really_do_not_switch = false;
-                                        if (!do_not_switch) goto flop; // task got remaining time, give more.
-                                        // else we don't want it either...
-                                }
 
-                                if (do_not_switch) {
-                                        // task yielded time. Don't switch context on _next_ IRQ
-                                        really_do_not_switch = true;
-                                        do_not_switch = false;
-                                }
-                 */
                 for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
                         if (tasks[check].state == XMEM_STATE_RUNNING) goto flip;
                 }
