@@ -57,6 +57,21 @@
 #endif
 #endif
 
+#if defined(EXT_RAM)
+#if EXT_RAM == 1
+#define RUGGED_CIRCUITS_SHIELD
+#else
+#define ANDY_BROWN_SHIELD
+#endif
+#endif
+
+#if !defined(XMEM_MULTIPLE_APP)
+#define XMEM_MAX_BANK_HEAPS 8
+#else
+#include <avr/interrupt.h>
+#define XMEM_MAX_BANK_HEAPS USE_MULTIPLE_APP_API
+#endif
+
 #if !defined(USE_MULTIPLE_APP_API)
 // Size to reserve for the stack from external RAM, this is NOT in addition to the on-chip RAM.
 // Now if we could only define a windowed area, we could have banks AND stack. Hmmm...
@@ -242,6 +257,11 @@
         void *safe_malloc(size_t x);
         void SoftCLI(void);
         void SoftSEI(void);
+
+
+        // for debugging...
+        extern volatile task tasks[USE_MULTIPLE_APP_API];
+        extern struct heapState bankHeapStates[XMEM_MAX_BANK_HEAPS];
 #endif
 
 #if WANT_TEST_CODE
@@ -267,6 +287,7 @@
 extern "C" {
         extern void *__flp;
         extern void *__brkval;
+        unsigned int freeHeap();
 }
 #if defined(USE_MULTIPLE_APP_API)
 extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
@@ -288,5 +309,4 @@ extern volatile uint8_t xmem_i2c_lock;
 #define XMEM_RELEASE_I2C(...) (void(0))
 #endif
 #endif
-
 #endif

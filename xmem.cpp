@@ -32,25 +32,16 @@
  */
 #include "xmem.h"
 
-#if defined(EXT_RAM)
-#if EXT_RAM == 1
-#define RUGGED_CIRCUITS_SHIELD
-#else
-#define ANDY_BROWN_SHIELD
-#endif
-#endif
-
-#if !defined(XMEM_MULTIPLE_APP)
-#define XMEM_MAX_BANK_HEAPS 8
-#else
-#include <avr/interrupt.h>
-#define XMEM_MAX_BANK_HEAPS USE_MULTIPLE_APP_API
+#if defined(XMEM_MULTIPLE_APP)
 volatile unsigned int keepstack; // original stack pointer on the avr.
 static char cpybuf[_RAM_COPY_SZ + 8]; // copy buffer for bank <-> bank copy
 #endif
 
 #if XMEM_SPI_LOCK
 volatile uint8_t xmem_spi_lock = 0;
+#endif
+#if XMEM_I2C_LOCK
+volatile uint8_t xmem_i2c_lock = 0;
 #endif
 
 extern "C" {
@@ -234,6 +225,12 @@ namespace xmem {
 #if defined(XMEM_MULTIPLE_APP)
                 tasks[0].state = XMEM_STATE_RUNNING; // In use, running
                 tasks[0].parent = 0; // ourself
+#endif
+#if XMEM_SPI_LOCK
+                xmem_spi_lock = 0;
+#endif
+#if XMEM_I2C_LOCK
+                xmem_i2c_lock = 0;
 #endif
 #endif
         }
@@ -695,8 +692,13 @@ namespace xmem {
          * @param object Caution, must be in AVR RAM
          */
         void Lock_Acquire(volatile uint8_t *object) {
-                while (*object != 0) Yield();
+retry_lock:
                 cli();
+                if (*object != 0) {
+                        sei();
+                        Yield();
+                        goto retry_lock;
+                }
                 *object = 1;
                 sei();
         }
@@ -732,7 +734,7 @@ namespace xmem {
          * exploded 284 to 288 billion years ago, give or take a billion years.
          *
          * 100us setting, this is the default:
-         * do the math, roughly 2x the delay, half the resolution of 50us. Duh ;-)
+         * do the math, roughly 2x the 50us delay, half the resolution of 50us. Duh ;-)
          *
          */
         void Sleep(uint64_t sleep) {
@@ -875,16 +877,15 @@ namespace xmem {
                                 // fill in all registers.
                                 // I save all because I may want to do tricks later on.
                                 asm volatile ("push r0");
-                                asm volatile ("push r1");
 
                                 asm volatile ("in r0, __SREG__");
-                                asm volatile ("cli");
                                 asm volatile ("push r0");
                                 asm volatile ("in r0 , 0x3b");
                                 asm volatile ("push r0");
                                 asm volatile ("in r0 , 0x3c");
-
                                 asm volatile ("push r0");
+
+                                asm volatile ("push r1");
                                 asm volatile ("push r2");
                                 asm volatile ("push r3");
                                 asm volatile ("push r4");
@@ -919,8 +920,6 @@ namespace xmem {
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(oldbank, false);
                                 SP = oldsp; // original stack
-                                //tasks[currentBank].w_booly = NULL;
-                                //tasks[currentBank].w_booln = NULL;
                                 sei();
                                 return i; // success
                         }
@@ -930,25 +929,41 @@ namespace xmem {
                 return 0; // fail, task zero is always taken.
         }
 
+        // Sleep timer ISR + context switch trigger
 
-        //volatile boolean do_not_switch = false;
-        //volatile boolean really_do_not_switch = false;
+        ISR(TIMER3_COMPA_vect, ISR_BLOCK) {
+                register uint8_t check;
 
+                for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
+                        if (tasks[check].state == XMEM_STATE_SLEEP) {
+                                if (tasks[check].sleep == 0llu) {
+                                        tasks[check].state = XMEM_STATE_RUNNING;
+                                } else {
+                                        tasks[check].sleep--;
+                                }
+                        }
+                }
 
-        // Task switch ISR, do what we need to do as fast as possible.
+                PORTE ^= _BV(PE6); // forced IRQ :-D
+        }
+
+        // Context switch ISR, do what we need to do as fast as possible.
         // We count what we do in here as part of the task time.
         // Therefore, actual task time is variable.
+        // It may seem unfortunate that all registers must be pushed,
+        // but I like to save the entire context, because you never know what
+        // custom assembler may be using for registers.
 
-        ISR(TIMER3_COMPA_vect, ISR_NAKED) {
+        ISR(INT6_vect, ISR_NAKED) {
                 asm volatile ("push r0");
-                asm volatile ("push r1");
                 asm volatile ("in r0, __SREG__");
-                asm volatile ("cli");
                 asm volatile ("push r0");
                 asm volatile ("in r0 , 0x3b");
                 asm volatile ("push r0");
                 asm volatile ("in r0 , 0x3c");
                 asm volatile ("push r0");
+
+                asm volatile ("push r1");
                 asm volatile ("push r2");
                 asm volatile ("push r3");
                 asm volatile ("push r4");
@@ -981,22 +996,7 @@ namespace xmem {
                 asm volatile ("push r31");
 
                 register uint8_t check;
-
-
-                if (tasks[currentBank].state != XMEM_STATE_RUNNING && tasks[currentBank].state != XMEM_STATE_HOG_CPU) {
-                        if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
-                } else {
-                        for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
-                                if (tasks[check].state == XMEM_STATE_SLEEP) {
-                                        if (tasks[check].sleep == 0llu) {
-                                                tasks[check].state = XMEM_STATE_RUNNING;
-                                        } else {
-                                                tasks[check].sleep--;
-                                        }
-                                }
-                        }
-                }
-
+                if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
                 if (tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
 
                 for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
@@ -1048,13 +1048,13 @@ flop:
                 asm volatile ("pop r4");
                 asm volatile ("pop r3");
                 asm volatile ("pop r2");
+                asm volatile ("pop r1");
                 asm volatile ("pop r0");
                 asm volatile ("out 0x3c , r0");
                 asm volatile ("pop r0");
                 asm volatile ("out 0x3b , r0");
                 asm volatile ("pop r0");
                 asm volatile ("out __SREG__ , r0");
-                asm volatile ("pop r1");
                 asm volatile ("pop r0");
                 asm volatile ("reti");
         }
@@ -1065,7 +1065,9 @@ flop:
         void Yield(void) {
                 cli();
                 if (tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
-                TIMER3_COMPA_vect();
+                PORTE ^= _BV(PE6); // forced IRQ :-D
+                sei();
+
         }
 
 

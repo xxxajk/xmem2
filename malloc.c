@@ -160,7 +160,7 @@ _malloc(size_t len)
 	 * Since we don't have an operating system, just make sure
 	 * that we don't collide with the stack.
 	 */
-	if (__brkval == 0)
+	if (__brkval == NULL)
 		__brkval = __malloc_heap_start;
 	cp = __malloc_heap_end;
 	if (cp == 0)
@@ -169,7 +169,7 @@ _malloc(size_t len)
 	  /*
 	   * Memory exhausted.
 	   */
-	  return 0;
+	  return NULL;
 	avail = cp - __brkval;
 	/*
 	 * Both tests below are needed to catch the case len >= 0xfffe.
@@ -183,7 +183,7 @@ _malloc(size_t len)
 	/*
 	 * Step 4: There's no help, just fail. :-/
 	 */
-	return 0;
+	return NULL;
 }
 
 
@@ -195,20 +195,21 @@ _free(void *p)
 	char *cp1, *cp2, *cpnew;
 
 	/* ISO C says free(NULL) must be a no-op */
-	if (p == 0)
+	if (p == NULL)
 		return;
 
+        if(p < __malloc_heap_start) return; // Don't free, out of range.
 	cpnew = p;
 	cpnew -= sizeof(size_t);
 	fpnew = (struct __freelist *)cpnew;
-	fpnew->nx = 0;
+	fpnew->nx = NULL;
 
 	/*
 	 * Trivial case first: if there's no freelist yet, our entry
 	 * will be the only one on it.  If this is the last entry, we
 	 * can reduce __brkval instead.
 	 */
-	if (__flp == 0) {
+	if (__flp == NULL) {
 		if ((char *)p + fpnew->sz == __brkval)
 			__brkval = cpnew;
 		else
@@ -221,7 +222,7 @@ _free(void *p)
 	 * freelist.  Try to aggregate the chunk with adjacent chunks
 	 * if possible.
 	 */
-	for (fp1 = __flp, fp2 = 0;
+	for (fp1 = __flp, fp2 = NULL;
 	     fp1;
 	     fp2 = fp1, fp1 = fp1->nx) {
 		if (fp1 < fpnew)
@@ -233,7 +234,7 @@ _free(void *p)
 			fpnew->sz += fp1->sz + sizeof(size_t);
 			fpnew->nx = fp1->nx;
 		}
-		if (fp2 == 0) {
+		if (fp2 == NULL) {
 			/* new head of freelist */
 			__flp = fpnew;
 			return;
@@ -256,7 +257,7 @@ _free(void *p)
 	/*
 	 * If there's a new topmost chunk, lower __brkval instead.
 	 */
-	for (fp1 = __flp, fp2 = 0;
+	for (fp1 = __flp, fp2 = NULL;
 	     fp1->nx != 0;
 	     fp2 = fp1, fp1 = fp1->nx)
 		/* advance to entry just before end of list */;
@@ -280,9 +281,10 @@ _realloc(void *ptr, size_t len) {
         size_t s, incr;
 
         /* Trivial case, required by C standard. */
-        if(ptr == 0)
+        if(ptr == NULL)
                 return _malloc(len);
 
+        if(ptr < __malloc_heap_start) goto move_it; // Don't extend, and won't free.
         cp1 = (char *) ptr;
         cp1 -= sizeof(size_t);
         fp1 = (struct __freelist *) cp1;
@@ -290,7 +292,7 @@ _realloc(void *ptr, size_t len) {
         cp = (char *) ptr + len; /* new next pointer */
         if(cp < cp1)
                 /* Pointer wrapped across top of RAM, fail. */
-                return 0;
+                return NULL;
 
         /*
          * See whether we are growing or shrinking.  When shrinking,
@@ -319,7 +321,7 @@ _realloc(void *ptr, size_t len) {
         incr = len - fp1->sz;
         cp = (char *) ptr + fp1->sz;
         fp2 = (struct __freelist *) cp;
-        for(s = 0, ofp3 = 0, fp3 = __flp;
+        for(s = 0, ofp3 = NULL, fp3 = __flp;
                 fp3;
                 ofp3 = fp3, fp3 = fp3->nx) {
                 if(fp3 == fp2 && fp3->sz + sizeof(size_t) >= incr) {
@@ -367,15 +369,16 @@ _realloc(void *ptr, size_t len) {
                         return ptr;
                 }
                 /* If that failed, we are out of luck. */
-                return 0;
+                return NULL;
         }
 
         /*
          * Call malloc() for a new chunk, then copy over the data, and
          * release the old region.
          */
-        if((memp = _malloc(len)) == 0)
-                return 0;
+move_it:
+        if((memp = _malloc(len)) == NULL)
+                return NULL;
         memcpy(memp, ptr, fp1->sz);
         _free(ptr);
         return memp;

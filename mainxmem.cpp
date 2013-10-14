@@ -57,11 +57,15 @@ int main(void) {
         asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
         asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
         asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_LO_ADDR));
+
+        DDRE |= _BV(PE6);
+        EICRB |= (1<<ISC60);
+        EIMSK |= (1<<INT6);
         sei();
 
         setup();
-        // Set up task switching
         cli();
+        // Set up task switching
         TCCR3A = 0;
         TCCR3B = 0;
         OCR3A = CLK_CMP;
