@@ -14,8 +14,6 @@ int main(void) {
         if (xmem::getTotalBanks() == 0) goto no;
         if (XMEM_STACK_TOP == XRAMEND) goto no;
         cli();
-        // Is this needed? Causes random crashes for me...
-        //asm volatile ( ".set    __stack, %0"    :: "i" (XMEM_STACK_TOP));
         asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP >> 8));
         asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
         asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
@@ -40,9 +38,10 @@ no:
 
 int main(void) {
         cli();
-
+        // Save the original stack pointer, needed to switch banks.
         keepstack = SP;
         sei();
+
         init();
 #if defined(USBCON)
         USBDevice.attach();
@@ -51,13 +50,12 @@ int main(void) {
         if (xmem::getTotalBanks() == 0) goto bad;
         if (XMEM_STACK_TOP == XRAMEND) goto bad;
         cli();
-        // Is this needed? Causes random crashes for me...
-        // asm volatile ( ".set    __stack, %0"    :: "i" (XMEM_STACK_TOP));
         asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP >> 8));
         asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
         asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
         asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_LO_ADDR));
 
+        // Enable ability to trigger IRQ from software.
         DDRE |= _BV(PE6);
         EICRB |= (1<<ISC60);
         EIMSK |= (1<<INT6);
@@ -83,11 +81,17 @@ forever:
         return 0;
 
 bad:
-        // just lock up in a loop. There is no way I can think of to tell the user. :-(
+        //
+        // NO external RAM.
+        // Use hardware to quickly blink the LED (pin 13) to alert error.
+        //
+        DDRB |= _BV(PB7);
+        // OC1C
+        TCCR1A = _BV(COM1C0);
+        TCCR1B =  _BV(WGM12) | _BV(CS11);
+        OCR1A = 0XDEAD;
         cli();
         for (;;);
 }
-
-
 
 #endif
