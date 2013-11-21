@@ -1,3 +1,4 @@
+#if defined(AVR)
 /*
  * xmem.cpp
  *
@@ -307,6 +308,7 @@ extern volatile uint8_t xmem_i2c_lock;
 #else
 #define XMEM_ACQUIRE_I2C(...) (void(0))
 #define XMEM_RELEASE_I2C(...) (void(0))
+#endif
 #endif
 #endif
 #endif

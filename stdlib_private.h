@@ -1,3 +1,4 @@
+#if defined(AVR)
 /* Copyright (c) 2004, Joerg Wunsch
    All rights reserved.
 
@@ -56,3 +57,4 @@ extern char __heap_end;
 
 #define STACK_POINTER() ((char *)AVR_STACK_POINTER_REG)
 
+#endif

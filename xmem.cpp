@@ -1,3 +1,5 @@
+#if defined(AVR)
+
 /*
  * xmem.cpp
  *
@@ -1136,3 +1138,4 @@ flop:
 #endif
 #endif
 }
+#endif

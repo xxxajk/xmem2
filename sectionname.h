@@ -1,3 +1,4 @@
+#if defined(AVR)
 /* Copyright (c) 2009 Atmel Corporation
    All rights reserved.
 
@@ -46,4 +47,5 @@
 #define ASSEMBLY_CLIB_SECTION   .section CLIB_SECTION, "ax", @progbits
 #define ASSEMBLY_MLIB_SECTION   .section MLIB_SECTION, "ax", @progbits
 
+#endif
 #endif

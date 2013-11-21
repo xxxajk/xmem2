@@ -1,3 +1,4 @@
+#if defined(AVR)
 /* Copyright (c) 2002, 2004, 2010 Joerg Wunsch
    Copyright (c) 2010  Gerben van den Broeke
    All rights reserved.
@@ -416,3 +417,4 @@ realloc(void *ptr, size_t len) {
         }
         return p;
 }
+#endif

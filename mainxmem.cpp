@@ -1,3 +1,4 @@
+#if defined(AVR)
 // Please see xmem.h for all settings.
 #include <xmem.h>
 
@@ -94,4 +95,5 @@ bad:
         for (;;);
 }
 
+#endif
 #endif
