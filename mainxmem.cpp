@@ -3,6 +3,7 @@
 #include <xmem.h>
 
 #if !defined(XMEM_MULTIPLE_APP)
+
 int main(void) {
         init();
 #if defined(USBCON)
@@ -12,22 +13,22 @@ int main(void) {
 #if defined(EXT_RAM)
         xmem::begin(EXT_RAM_HEAP, EXT_RAM_STACK);
 #if EXT_RAM_STACK
-        if (xmem::getTotalBanks() == 0) goto no;
-        if (XMEM_STACK_TOP == XRAMEND) goto no;
+        if(xmem::getTotalBanks() == 0) goto no;
+        if(XMEM_STACK_TOP == XRAMEND) goto no;
         cli();
-        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP >> 8));
-        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
-        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
-        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_LO_ADDR));
+        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
+        asm volatile ( "out     %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
+        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
+        asm volatile ( "out     %0,16" ::"i" (AVR_STACK_POINTER_LO_ADDR));
         sei();
 #endif
 no:
 #endif
         setup();
 
-        for (;;) {
+        for(;;) {
                 loop();
-                if (serialEventRun) serialEventRun();
+                if(serialEventRun) serialEventRun();
         }
 
         return 0;
@@ -48,18 +49,18 @@ int main(void) {
         USBDevice.attach();
 #endif
         xmem::begin(true, true);
-        if (xmem::getTotalBanks() == 0) goto bad;
-        if (XMEM_STACK_TOP == XRAMEND) goto bad;
+        if(xmem::getTotalBanks() == 0) goto bad;
+        if(XMEM_STACK_TOP == XRAMEND) goto bad;
         cli();
-        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP >> 8));
-        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_HI_ADDR));
-        asm volatile ( "ldi     16, %0"         :: "i" (XMEM_STACK_TOP & 0x0ff));
-        asm volatile ( "out     %0,16"          :: "i" (AVR_STACK_POINTER_LO_ADDR));
+        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP >> 8));
+        asm volatile ( "out     %0,16" ::"i" (AVR_STACK_POINTER_HI_ADDR));
+        asm volatile ( "ldi     16, %0" ::"i" (XMEM_STACK_TOP & 0x0ff));
+        asm volatile ( "out     %0,16" ::"i" (AVR_STACK_POINTER_LO_ADDR));
 
         // Enable ability to trigger IRQ from software.
         DDRE |= _BV(PE6);
-        EICRB |= (1<<ISC60);
-        EIMSK |= (1<<INT6);
+        EICRB |= (1 << ISC60);
+        EIMSK |= (1 << INT6);
         sei();
 
         setup();
@@ -74,9 +75,9 @@ int main(void) {
         sei();
 forever:
 
-        for (;;) {
+        for(;;) {
                 loop();
-                if (serialEventRun) serialEventRun();
+                if(serialEventRun) serialEventRun();
         }
 
         return 0;
@@ -89,10 +90,10 @@ bad:
         DDRB |= _BV(PB7);
         // OC1C
         TCCR1A = _BV(COM1C0);
-        TCCR1B =  _BV(WGM12) | _BV(CS11);
+        TCCR1B = _BV(WGM12) | _BV(CS11);
         OCR1A = 0XDEAD;
         cli();
-        for (;;);
+        for(;;);
 }
 
 #endif

@@ -51,7 +51,7 @@ extern "C" {
         unsigned int getHeapend() {
                 extern unsigned int __heap_start;
 
-                if ((unsigned int)__brkval == 0) {
+                if((unsigned int)__brkval == 0) {
                         return (unsigned int)&__heap_start;
                 } else {
                         return (unsigned int)__brkval;
@@ -59,7 +59,7 @@ extern "C" {
         }
 
         unsigned int freeHeap() {
-                if (SP < (unsigned int)__malloc_heap_start) {
+                if(SP < (unsigned int)__malloc_heap_start) {
                         return ((unsigned int)__malloc_heap_end - getHeapend());
                 } else {
                         return (SP - getHeapend());
@@ -104,7 +104,7 @@ namespace xmem {
         uint8_t Autosize(bool stackInXmem_) {
                 uint8_t banks = 0;
 #if !defined(XMEM_MULTIPLE_APP)
-                if (stackInXmem_) {
+                if(stackInXmem_) {
                         totalBanks = 255;
                         setMemoryBank(1, false);
                         setMemoryBank(0, false);
@@ -115,7 +115,7 @@ namespace xmem {
                         *ptr2 = 0xAA;
                         *ptr = 0xAA;
                         *ptr2 = 0x55;
-                        if (*ptr != 0xAA && *ptr2 != 0x55) return 0;
+                        if(*ptr != 0xAA && *ptr2 != 0x55) return 0;
                         totalBanks = 1;
                         return 1;
                 }
@@ -136,17 +136,17 @@ namespace xmem {
                         *ptr = 0xAA;
                         *ptr2 = 0x55;
 
-                        if (*ptr != 0xAA && *ptr2 != 0x55) break;
-                        if (banks != 0) {
+                        if(*ptr != 0xAA && *ptr2 != 0x55) break;
+                        if(banks != 0) {
                                 setMemoryBank(0, false);
                                 *ptr = banks;
                                 *ptr2 = banks;
                                 setMemoryBank(banks, false);
-                                if (*ptr != 0xAA && *ptr2 != 0x55) break;
+                                if(*ptr != 0xAA && *ptr2 != 0x55) break;
                         }
                         banks++;
                         // if(!banks) what do we do here for 256 or more?!
-                } while (banks);
+                } while(banks);
                 return banks;
         }
 
@@ -182,7 +182,7 @@ namespace xmem {
                 // the RAM by driving PD7 (pin 38) low.
 
                 pinMode(38, OUTPUT);
-                digitalWrite(38, LOW);
+                PORTD &= ~_BV(PD7);
                 pinMode(42, OUTPUT);
                 pinMode(43, OUTPUT);
                 pinMode(44, OUTPUT);
@@ -202,23 +202,23 @@ namespace xmem {
                 totalBanks = Autosize(stackInXmem);
                 // initialize the heap states
 
-                if (totalBanks > 0) {
+                if(totalBanks > 0) {
                         // set the current bank to zero
                         setMemoryBank(0, false);
 #if !defined(XMEM_MULTIPLE_APP)
-                        if (heapInXmem_)
+                        if(heapInXmem_)
 #endif
                                 setupHeap();
 
-                        for (bank = 0; bank < totalBanks; bank++) {
+                        for(bank = 0; bank < totalBanks; bank++) {
                                 saveHeap(bank);
 #if !defined(XMEM_MULTIPLE_APP)
-                                if (heapInXmem_)
+                                if(heapInXmem_)
 #endif
                                         bankHeapStates[bank].__flp = NULL; // All new arena stuff!
 
 #if defined(USE_MULTIPLE_APP_API)
-                                if (bank < USE_MULTIPLE_APP_API) {
+                                if(bank < USE_MULTIPLE_APP_API) {
                                         tasks[bank].state = XMEM_STATE_FREE; // Not in use.
                                 }
 #endif
@@ -250,26 +250,26 @@ namespace xmem {
                 // Write lower 3 bits of 'bank' to upper 3 bits of Port L
                 PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
 #elif defined(ANDY_BROWN_SHIELD)
-                if ((bank_ & 1) != 0)
+                if((bank_ & 1) != 0)
                         PORTD |= _BV(PD7);
                 else
                         PORTD &= ~_BV(PD7);
 
-                if ((bank_ & 2) != 0)
+                if((bank_ & 2) != 0)
                         PORTL |= _BV(PL7);
                 else
                         PORTL &= ~_BV(PL7);
 
-                if ((bank_ & 4) != 0)
+                if((bank_ & 4) != 0)
                         PORTL |= _BV(PL6);
                 else
                         PORTL &= ~_BV(PL6);
 #endif
 #if defined(XMEM_MULTIPLE_APP)
-                if (bank_ & (1 << 3)) {
-                        digitalWrite(30, HIGH);
+                if(bank_ & (1 << 3)) {
+                        PORTC |= _BV(PC7);
                 } else {
-                        digitalWrite(30, LOW);
+                        PORTC &= ~_BV(PC7);
                 }
 #endif
 #endif
@@ -281,16 +281,16 @@ namespace xmem {
 
         void setMemoryBank(uint8_t bank_, bool switchHeap_) {
 #if defined(EXT_RAM)
-                if (totalBanks < 2) return;
+                if(totalBanks < 2) return;
 
                 // check
 
-                if (bank_ == currentBank)
+                if(bank_ == currentBank)
                         return;
 
                 // save heap state if requested
 
-                if (switchHeap_)
+                if(switchHeap_)
                         saveHeap(currentBank);
 
                 // switch in the new bank
@@ -299,26 +299,26 @@ namespace xmem {
                 // Write lower 3 bits of 'bank' to upper 3 bits of Port L
                 PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
 #elif defined(ANDY_BROWN_SHIELD)
-                if ((bank_ & 1) != 0)
+                if((bank_ & 1) != 0)
                         PORTD |= _BV(PD7);
                 else
                         PORTD &= ~_BV(PD7);
 
-                if ((bank_ & 2) != 0)
+                if((bank_ & 2) != 0)
                         PORTL |= _BV(PL7);
                 else
                         PORTL &= ~_BV(PL7);
 
-                if ((bank_ & 4) != 0)
+                if((bank_ & 4) != 0)
                         PORTL |= _BV(PL6);
                 else
                         PORTL &= ~_BV(PL6);
 #endif
 #if defined(XMEM_MULTIPLE_APP)
-                if (bank_ & (1 << 3)) {
-                        digitalWrite(30, HIGH);
+                if(bank_ & (1 << 3)) {
+                        PORTC |= _BV(PC7);
                 } else {
-                        digitalWrite(30, LOW);
+                        PORTC &= ~_BV(PC7);
                 }
 #endif
 
@@ -326,7 +326,7 @@ namespace xmem {
 
                 currentBank = bank_;
 
-                if (switchHeap_)
+                if(switchHeap_)
                         restoreHeap(bank_);
 #endif
         }
@@ -337,7 +337,7 @@ namespace xmem {
 
         void saveHeap(uint8_t bank_) {
 #if defined(EXT_RAM)
-                if (totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
+                if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
                 bankHeapStates[bank_].__malloc_heap_start = __malloc_heap_start;
                 bankHeapStates[bank_].__malloc_heap_end = __malloc_heap_end;
                 bankHeapStates[bank_].__brkval = __brkval;
@@ -351,7 +351,7 @@ namespace xmem {
 
         void restoreHeap(uint8_t bank_) {
 #if defined(EXT_RAM)
-                if (totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
+                if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
                 __malloc_heap_start = bankHeapStates[bank_].__malloc_heap_start;
                 __malloc_heap_end = bankHeapStates[bank_].__malloc_heap_end;
                 __brkval = bankHeapStates[bank_].__brkval;
@@ -431,25 +431,25 @@ namespace xmem {
          * @param p memory copier pipe in AVR RAM
          */
         void memory_send(uint8_t *data, uint16_t length, memory_stream *p) {
-                while (p->ready) Yield(); // Since multiple senders are possible, wait.
+                while(p->ready) Yield(); // Since multiple senders are possible, wait.
                 cli();
                 p->data = data;
                 p->data_len = length;
                 p->bank = currentBank;
                 p->ready = true;
                 sei();
-                while (p->ready) Yield(); // Wait here, because caller may free right after!
+                while(p->ready) Yield(); // Wait here, because caller may free right after!
         }
 
         void *safe_malloc(size_t x) {
                 void *data = malloc(x);
-                if (data == NULL) {
+                if(data == NULL) {
                         Serial.write("\r\n\r\nOOM LEN=");
                         Serial.println(x);
                         Serial.write("PID=");
                         Serial.println(currentBank);
                         Serial.flush();
-                        for (;;);
+                        for(;;);
                 }
                 return data;
         }
@@ -461,7 +461,7 @@ namespace xmem {
          * @return length of message
          */
         uint16_t memory_recv(uint8_t **data, memory_stream *p) {
-                while (!p->ready) Yield();
+                while(!p->ready) Yield();
                 *data = (uint8_t *)safe_malloc(p->data_len);
                 copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
                 cli();
@@ -484,7 +484,7 @@ namespace xmem {
         void pipe_send_message(uint8_t *message, int len, pipe_stream *p) {
                 pipe_put(len & 0xff, p);
                 pipe_put((len >> 8) & 0xff, p);
-                while (len) {
+                while(len) {
                         pipe_put(*message, p);
                         message++;
                         len--;
@@ -505,7 +505,7 @@ namespace xmem {
                 rv = len;
                 *message = (uint8_t *)safe_malloc(len);
                 uint8_t *ptr = *message;
-                while (len) {
+                while(len) {
                         *ptr = pipe_get(p);
                         ptr++;
                         len--;
@@ -546,7 +546,7 @@ namespace xmem {
          * @param p pipe in AVR RAM
          */
         void pipe_put(uint8_t c, pipe_stream *p) {
-                while (p->ready) Yield();
+                while(p->ready) Yield();
                 p->data = c;
                 p->ready = true;
         }
@@ -558,7 +558,7 @@ namespace xmem {
          */
         uint8_t pipe_get(pipe_stream *p) {
                 uint8_t c;
-                while (!p->ready) Yield();
+                while(!p->ready) Yield();
                 c = p->data;
                 p->ready = false;
                 return c;
@@ -581,9 +581,9 @@ namespace xmem {
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 sei();
-                while (length) {
+                while(length) {
                         register uint16_t l = length;
-                        if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
+                        if(l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         memcpy(ss, cpybuf, l);
                         cli();
                         SP = keepstack; // original on-chip ram
@@ -618,9 +618,9 @@ namespace xmem {
                 register char *dd = (char *)d;
                 register unsigned int csp = SP;
                 sei();
-                while (length) {
+                while(length) {
                         register uint16_t l = length;
-                        if (l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
+                        if(l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         cli();
                         SP = keepstack;
                         flipBank(ob);
@@ -653,7 +653,7 @@ namespace xmem {
          * Only the parent or child process should call this.
          */
         boolean Is_Running(uint8_t which) {
-                if ((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return false;
+                if((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return false;
                 return (tasks[which].state == XMEM_STATE_RUNNING || tasks[which].state == XMEM_STATE_SLEEP);
         }
 
@@ -666,7 +666,7 @@ namespace xmem {
          *
          */
         boolean Is_Done(uint8_t which) {
-                if ((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return true;
+                if((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return true;
                 return (tasks[which].state == XMEM_STATE_DEAD);
         }
 
@@ -696,7 +696,7 @@ namespace xmem {
         void Lock_Acquire(volatile uint8_t *object) {
 retry_lock:
                 cli();
-                if (*object != 0) {
+                if(*object != 0) {
                         sei();
                         Yield();
                         goto retry_lock;
@@ -740,7 +740,7 @@ retry_lock:
          *
          */
         void Sleep(uint64_t sleep) {
-                if (sleep == 0) return; // what? :-)
+                if(sleep == 0) return; // what? :-)
                 cli();
 #ifdef hundredus
                 tasks[currentBank].sleep = sleep;
@@ -753,7 +753,7 @@ retry_lock:
 #endif
                 tasks[currentBank].state = XMEM_STATE_SLEEP;
                 sei();
-                while (tasks[currentBank].state == XMEM_STATE_SLEEP) Yield();
+                while(tasks[currentBank].state == XMEM_STATE_SLEEP) Yield();
         }
 
         /**
@@ -764,10 +764,10 @@ retry_lock:
          *
          */
         void StartTask(uint8_t which) {
-                if (tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
+                if(tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
                 cli();
-                if (tasks[which].state == XMEM_STATE_PAUSED) tasks[which].state = XMEM_STATE_RUNNING; // running
-                else if (tasks[which].state == XMEM_STATE_SLEEP) tasks[which].state = XMEM_STATE_RUNNING; // running
+                if(tasks[which].state == XMEM_STATE_PAUSED) tasks[which].state = XMEM_STATE_RUNNING; // running
+                else if(tasks[which].state == XMEM_STATE_SLEEP) tasks[which].state = XMEM_STATE_RUNNING; // running
                 sei();
         }
 
@@ -779,10 +779,10 @@ retry_lock:
          *
          */
         void PauseTask(uint8_t which) {
-                if (tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
-                while (tasks[which].state == XMEM_STATE_SLEEP) Yield();
+                if(tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
+                while(tasks[which].state == XMEM_STATE_SLEEP) Yield();
                 cli();
-                if (tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
+                if(tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
                 sei();
         }
 
@@ -796,7 +796,7 @@ retry_lock:
                 sei();
                 Yield();
                 // should never come here
-                for (;;);
+                for(;;);
         }
 
         // use the defaults from xmem.h, 8192 bytes
@@ -833,17 +833,17 @@ retry_lock:
                 asm volatile ("push r22"); // loh8
                 asm volatile ("pop r3");
 #endif
-                if (ofs > 30719 || ofs < 1024) {
+                if(ofs > 30719 || ofs < 1024) {
                         sei();
                         return 0; // FAIL!
                 }
                 register unsigned int oldsp;
                 register uint8_t oldbank;
                 register int i;
-                for (i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
-                        if (i == currentBank) continue; // Don't free or check current task!
-                        if (tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
-                        if (tasks[i].state == XMEM_STATE_FREE) {
+                for(i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
+                        if(i == currentBank) continue; // Don't free or check current task!
+                        if(tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
+                        if(tasks[i].state == XMEM_STATE_FREE) {
                                 tasks[i].state = XMEM_STATE_PAUSED; // setting up/paused
                                 tasks[i].parent = currentBank; // parent
                                 tasks[i].sp = (0x7FFF + ofs);
@@ -936,9 +936,9 @@ retry_lock:
         ISR(TIMER3_COMPA_vect, ISR_BLOCK) {
                 register uint8_t check;
 
-                for (check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
-                        if (tasks[check].state == XMEM_STATE_SLEEP) {
-                                if (tasks[check].sleep == 0llu) {
+                for(check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
+                        if(tasks[check].state == XMEM_STATE_SLEEP) {
+                                if(tasks[check].sleep == 0llu) {
                                         tasks[check].state = XMEM_STATE_RUNNING;
                                 } else {
                                         tasks[check].sleep--;
@@ -998,21 +998,21 @@ retry_lock:
                 asm volatile ("push r31");
 
                 register uint8_t check;
-                if (tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
-                if (tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
+                if(tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
+                if(tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
 
-                for (check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
-                        if (tasks[check].state == XMEM_STATE_RUNNING) goto flip;
+                for(check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
+                        if(tasks[check].state == XMEM_STATE_RUNNING) goto flip;
                 }
 
                 // Check tasks before current.
-                for (check = 0; check < currentBank; check++) {
-                        if (tasks[check].state == XMEM_STATE_RUNNING) break;
+                for(check = 0; check < currentBank; check++) {
+                        if(tasks[check].state == XMEM_STATE_RUNNING) break;
                 }
 
 flip:
 
-                if (check != currentBank) { // skip if we are not context switching
+                if(check != currentBank) { // skip if we are not context switching
                         tasks[currentBank].sp = SP;
                         SP = keepstack; // original on-chip ram
                         setMemoryBank(check, true);
@@ -1066,7 +1066,7 @@ flop:
          */
         void Yield(void) {
                 cli();
-                if (tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
+                if(tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
                 PORTE ^= _BV(PE6); // forced IRQ :-D
                 sei();
 
@@ -1084,7 +1084,7 @@ flop:
 
         SelfTestResults selfTest() {
                 SelfTestResults results;
-                if (totalBanks == 0) {
+                if(totalBanks == 0) {
                         results.succeeded = false;
                         results.failedBank = 0;
                         results.failedAddress = reinterpret_cast<uint8_t *>(0x2200);
@@ -1096,14 +1096,14 @@ flop:
                 // write an ascending sequence of 1..237 running through
                 // all memory banks
                 writeValue = 1;
-                for (bank = 0; bank < totalBanks; bank++) {
+                for(bank = 0; bank < totalBanks; bank++) {
 
                         setMemoryBank(bank);
 
-                        for (ptr = reinterpret_cast<uint8_t *>(0xFFFF); ptr >= reinterpret_cast<uint8_t *>(0x2200); ptr--) {
+                        for(ptr = reinterpret_cast<uint8_t *>(0xFFFF); ptr >= reinterpret_cast<uint8_t *>(0x2200); ptr--) {
                                 *ptr = writeValue;
 
-                                if (writeValue++ == 237)
+                                if(writeValue++ == 237)
                                         writeValue = 1;
                         }
                 }
@@ -1111,22 +1111,22 @@ flop:
                 // verify the writes
 
                 writeValue = 1;
-                for (bank = 0; bank < 8; bank++) {
+                for(bank = 0; bank < 8; bank++) {
 
                         setMemoryBank(bank);
 
-                        for (ptr = reinterpret_cast<uint8_t *>(0xFFFF); ptr >= reinterpret_cast<uint8_t *>(0x2200); ptr--) {
+                        for(ptr = reinterpret_cast<uint8_t *>(0xFFFF); ptr >= reinterpret_cast<uint8_t *>(0x2200); ptr--) {
 
                                 readValue = *ptr;
 
-                                if (readValue != writeValue) {
+                                if(readValue != writeValue) {
                                         results.succeeded = false;
                                         results.failedAddress = ptr;
                                         results.failedBank = bank;
                                         return results;
                                 }
 
-                                if (writeValue++ == 237)
+                                if(writeValue++ == 237)
                                         writeValue = 1;
                         }
                 }

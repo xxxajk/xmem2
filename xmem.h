@@ -172,31 +172,32 @@
 #include <stdint.h>
 
 #if defined(USE_MULTIPLE_APP_API)
-        typedef struct {
-                volatile unsigned int sp; // stack pointer
-                volatile uint8_t state; // task state.
-                volatile uint8_t parent; // the task that started this task
-                volatile uint64_t sleep; // ms to sleep
-        } task;
 
-        // This structure is used to send single bytes between processes
+typedef struct {
+        volatile unsigned int sp; // stack pointer
+        volatile uint8_t state; // task state.
+        volatile uint8_t parent; // the task that started this task
+        volatile uint64_t sleep; // ms to sleep
+} task;
 
-        typedef struct {
-                uint8_t volatile data; // the data to transfer
-                boolean volatile ready; // data available
-        } pipe_stream;
+// This structure is used to send single bytes between processes
 
-        // This structure is used to send a chunk of memory between processes
+typedef struct {
+        uint8_t volatile data; // the data to transfer
+        boolean volatile ready; // data available
+} pipe_stream;
 
-        typedef struct {
-                uint8_t volatile *data; // pointer to the data available
-                uint16_t volatile data_len; // length to copy
-                uint8_t volatile bank; // bank the data is in
-                boolean volatile ready; // data available
-        } memory_stream;
+// This structure is used to send a chunk of memory between processes
+
+typedef struct {
+        uint8_t volatile *data; // pointer to the data available
+        uint16_t volatile data_len; // length to copy
+        uint8_t volatile bank; // bank the data is in
+        boolean volatile ready; // data available
+} memory_stream;
 #endif
 
-        namespace xmem {
+namespace xmem {
 
         /*
          * The currently selected bank (Also current task for multitasking)
