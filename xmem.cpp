@@ -12,6 +12,11 @@
  *  Modified by Rugged Circuits LLC (25 Oct 2011) for use with the QuadRAM 512k shield:
  *     http://ruggedcircuits.com/html/quadram.html
  *
+ *  Version 2.0:
+ *  -----------
+ *     * Multitasking support is now considered finished.
+ *     * Support Teensy++ 2.0
+ *
  *  Version 1.3:
  *  -----------
  *     * Modifications by Andrew J. Kroll https://github.com/xxxajk
@@ -176,26 +181,38 @@ namespace xmem {
 #endif
                 XMCRA = 1 << SRE; // enable xmem, no wait states
 
-#if defined(RUGGED_CIRCUITS_SHIELD)
+#if defined(CORE_TEENSY)
+                // Teensy++ 2.0 uses PE7 (pin 19) for /CS
+                // and 38,39,40  (PF0, PF1, PF2) as A16 A17 A18
+                // This is how it is connected regardless of
+                // what RAM interface you connect, PERIOD!
+                pinMode(19, OUTPUT);
+                PORTE &= ~_BV(PE7);
+                pinMode(38, OUTPUT);
+                pinMode(39, OUTPUT);
+                pinMode(40, OUTPUT);
+#elif defined(RUGGED_CIRCUITS_SHIELD)
                 // set up the bank selector pins (address lines A16..A18)
-                // these are on pins 42,43,44 (PL7,PL6,PL5). Also, enable
+                // these are on pins 44,43,42 (PL5,PL6,PL7). Also, enable
                 // the RAM by driving PD7 (pin 38) low.
-
                 pinMode(38, OUTPUT);
                 PORTD &= ~_BV(PD7);
                 pinMode(42, OUTPUT);
                 pinMode(43, OUTPUT);
                 pinMode(44, OUTPUT);
-
 #elif defined(ANDY_BROWN_SHIELD)
                 // set up the bank selector pins (address lines A16..A18)
                 // these are on pins 38,42,43 (PD7,PL7,PL6)
-
                 DDRD |= _BV(PD7);
                 DDRL |= (_BV(PL6) | _BV(PL7));
 #endif
 #if defined(XMEM_MULTIPLE_APP)
+                // Enable software IRQ pin hack.
+#if defined(CORE_TEENSY)
+                pinMode(18, OUTPUT);
+#else
                 pinMode(30, OUTPUT);
+#endif
 #endif
 
                 // Auto size RAM
@@ -246,7 +263,10 @@ namespace xmem {
         void flipBank(uint8_t bank_) {
 #if defined(EXT_RAM)
                 // switch in the new bank
-#if defined(RUGGED_CIRCUITS_SHIELD)
+#if defined(CORE_TEENSY)
+                // Write lower 3 bits of 'bank' to Port F
+                PORTF = (PORTF & 0xF8) | (bank_ & 0x7);
+#elif defined(RUGGED_CIRCUITS_SHIELD)
                 // Write lower 3 bits of 'bank' to upper 3 bits of Port L
                 PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
 #elif defined(ANDY_BROWN_SHIELD)
@@ -294,8 +314,10 @@ namespace xmem {
                         saveHeap(currentBank);
 
                 // switch in the new bank
-
-#if defined(RUGGED_CIRCUITS_SHIELD)
+#if defined(CORE_TEENSY)
+                // Write lower 3 bits of 'bank' to Port F
+                PORTF = (PORTF & 0xF8) | (bank_ & 0x7);
+#elif defined(RUGGED_CIRCUITS_SHIELD)
                 // Write lower 3 bits of 'bank' to upper 3 bits of Port L
                 PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
 #elif defined(ANDY_BROWN_SHIELD)
