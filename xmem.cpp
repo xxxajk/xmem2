@@ -1,4 +1,4 @@
-#if defined(AVR)
+#if defined(__AVR__)
 
 /*
  * xmem.cpp
@@ -169,7 +169,7 @@ namespace xmem {
 
                 totalBanks = 0;
 
-#if defined(EXT_RAM)
+#if EXT_RAM
                 uint8_t bank;
 
                 // set up the xmem registers
@@ -261,7 +261,7 @@ namespace xmem {
         // Switch memory bank, but do not record the bank
 
         void flipBank(uint8_t bank_) {
-#if defined(EXT_RAM)
+#if EXT_RAM
                 // switch in the new bank
 #if defined(CORE_TEENSY)
                 // Write lower 3 bits of 'bank' to Port F
@@ -300,7 +300,7 @@ namespace xmem {
          */
 
         void setMemoryBank(uint8_t bank_, bool switchHeap_) {
-#if defined(EXT_RAM)
+#if EXT_RAM
                 if(totalBanks < 2) return;
 
                 // check
@@ -358,7 +358,7 @@ namespace xmem {
          */
 
         void saveHeap(uint8_t bank_) {
-#if defined(EXT_RAM)
+#if EXT_RAM
                 if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
                 bankHeapStates[bank_].__malloc_heap_start = __malloc_heap_start;
                 bankHeapStates[bank_].__malloc_heap_end = __malloc_heap_end;
@@ -372,7 +372,7 @@ namespace xmem {
          */
 
         void restoreHeap(uint8_t bank_) {
-#if defined(EXT_RAM)
+#if EXT_RAM
                 if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
                 __malloc_heap_start = bankHeapStates[bank_].__malloc_heap_start;
                 __malloc_heap_end = bankHeapStates[bank_].__malloc_heap_end;
@@ -1112,7 +1112,7 @@ flop:
                         results.failedAddress = reinterpret_cast<uint8_t *>(0x2200);
                         return results;
                 }
-#if defined(EXT_RAM)
+#if EXT_RAM
                 volatile uint8_t *ptr;
                 uint8_t bank, writeValue, readValue;
                 // write an ascending sequence of 1..237 running through

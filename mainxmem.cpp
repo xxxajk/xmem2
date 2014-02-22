@@ -1,16 +1,22 @@
-#if defined(AVR)
+#if defined(__AVR__)
 // Please see xmem.h for all settings.
 #include <xmem.h>
 
 #if !defined(XMEM_MULTIPLE_APP)
 
 int main(void) {
+
+#if defined(CORE_TEENSY)
+        _init_Teensyduino_internal_();
+#else
         init();
 #if defined(USBCON)
         USBDevice.attach();
 #endif
+#endif
 
-#if defined(EXT_RAM)
+
+#if EXT_RAM
         xmem::begin(EXT_RAM_HEAP, EXT_RAM_STACK);
 #if EXT_RAM_STACK
         if(xmem::getTotalBanks() == 0) goto no;
@@ -28,13 +34,15 @@ no:
 
         for(;;) {
                 loop();
+#if !defined(CORE_TEENSY)
                 if(serialEventRun) serialEventRun();
+#endif
         }
 
         return 0;
 }
 #else
-#if !defined(EXT_RAM)
+#if !EXT_RAM
 #error You must enable EXT_RAM.
 #endif
 
@@ -44,10 +52,15 @@ int main(void) {
         keepstack = SP;
         sei();
 
+#if defined(CORE_TEENSY)
+        _init_Teensyduino_internal_();
+#else
         init();
 #if defined(USBCON)
         USBDevice.attach();
 #endif
+#endif
+
         xmem::begin(true, true);
         if(xmem::getTotalBanks() == 0) goto bad;
         if(XMEM_STACK_TOP == XRAMEND) goto bad;
@@ -77,7 +90,9 @@ forever:
 
         for(;;) {
                 loop();
+#if !defined(CORE_TEENSY)
                 if(serialEventRun) serialEventRun();
+#endif
         }
 
         return 0;

@@ -1,4 +1,4 @@
-#if defined(AVR)
+#if defined(__AVR__)
 /*
  * xmem.cpp
  *
@@ -20,6 +20,12 @@
 #define XMEM_H
 // <Settings>
 
+// Please note, you only need to disable this if you want to optimize code size, and save a few bytes of RAM.
+// 0 to disable, 1 for Rugged Circuits, 2 for Andy Brown
+#ifndef EXT_RAM
+#define EXT_RAM 1
+#endif
+
 // How much AVR ram to use for bank<->bank copier, 8 more gets added to this amount.
 #ifndef _RAM_COPY_SZ
 #define _RAM_COPY_SZ 256
@@ -30,12 +36,6 @@
 // It is much better to do this from the Makefile.
 // The number is maximal possible tasks.
 //#define USE_MULTIPLE_APP_API 16
-
-// Please note, you only need to disable this if you want to optimize code size, and save a few bytes of RAM.
-// 1 for Rugged Circuits, anything else for Andy Brown, comment out to disable
-#ifndef EXT_RAM
-#define EXT_RAM 1
-#endif
 
 //
 // 0 to NOT move heap to external RAM
@@ -58,12 +58,10 @@
 #endif
 #endif
 
-#if defined(EXT_RAM)
 #if EXT_RAM == 1
 #define RUGGED_CIRCUITS_SHIELD
-#else
+#elif  EXT_RAM > 1
 #define ANDY_BROWN_SHIELD
-#endif
 #endif
 
 #if !defined(XMEM_MULTIPLE_APP)

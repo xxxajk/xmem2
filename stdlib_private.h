@@ -1,4 +1,4 @@
-#if defined(AVR)
+#if defined(__AVR__)
 /* Copyright (c) 2004, Joerg Wunsch
    All rights reserved.
 
