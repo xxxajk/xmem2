@@ -436,6 +436,45 @@ namespace xmem {
 
         /**
          *
+         * @return bank that is reserved for this task. 0 = failure.
+         *
+         * Allocate an extra bank for this task.
+         *
+         */
+        uint8_t AllocateExtraBank(void) {
+                cli();
+                for(int i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
+                        if(i == currentBank) continue; // Don't free or check current task!
+                        if(tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
+                        if(tasks[i].state == XMEM_STATE_FREE) {
+                                tasks[i].state = XMEM_STATE_USED; //
+                                tasks[i].parent = currentBank; // parent
+                                sei();
+                                return i;
+                        }
+                }
+                sei();
+                return 0;
+        }
+
+        /**
+         *
+         * @param bank memory bank to free or task to explicitly kill
+         * @return nothing
+         *
+         * Free an allocated bank or kill a task.
+         * Bank or task must be owned by parent task.
+         */
+        void FreeBank(uint8_t bank) {
+                cli();
+                if(currentBank == tasks[bank].parent) {
+                        tasks[bank].state = XMEM_STATE_FREE;
+                }
+                sei();
+        }
+
+        /**
+         *
          * @param p memory copier pipe in AVR RAM
          * @return status
          */

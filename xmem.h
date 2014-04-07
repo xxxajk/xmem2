@@ -158,6 +158,7 @@
 #define XMEM_END                ((void *)0xFFFF)
 #define XMEM_STATE_FREE         0x00 // Thread is not running, free slot to use.
 #define XMEM_STATE_PAUSED       0x01 // Thread is paused.
+#define XMEM_STATE_USED         0x02 // Used bank by a task.
 #define XMEM_STATE_RUNNING      0x80 // Thread is running.
 #define XMEM_STATE_DEAD         0x81 // Thread has stopped running.
 #define XMEM_STATE_SLEEP        0x82 // Thread is sleeping.
@@ -257,8 +258,8 @@ namespace xmem {
         void *safe_malloc(size_t x);
         void SoftCLI(void);
         void SoftSEI(void);
-
-
+        uint8_t AllocateExtraBank(void);
+        void FreeBank(uint8_t bank);
         // for debugging...
         extern volatile task tasks[USE_MULTIPLE_APP_API];
         extern struct heapState bankHeapStates[XMEM_MAX_BANK_HEAPS];
