@@ -587,7 +587,7 @@ namespace xmem {
         }
 
         /**
-         * Copy a block of RAM to another tasks arena -- this is untested, but it probably works.
+         * Copy a block of RAM to another tasks arena or acquired bank.
          *
          * @param d destination address
          * @param s source address
@@ -598,20 +598,20 @@ namespace xmem {
                 SoftCLI();
                 cli();
                 register uint8_t mb = currentBank;
-                register unsigned int csp = SP;
                 register uint8_t ob = db;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
+                register unsigned int csp = SP;
                 sei();
                 while(length) {
                         register uint16_t l = length;
                         if(l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
-                        memcpy(ss, cpybuf, l);
+                        memcpy(cpybuf, ss, l);
                         cli();
                         SP = keepstack; // original on-chip ram
                         flipBank(ob);
                         sei();
-                        memcpy(cpybuf, dd, l);
+                        memcpy(dd, cpybuf, l);
                         cli();
                         flipBank(mb);
                         SP = csp;
