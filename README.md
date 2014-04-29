@@ -1,9 +1,17 @@
 xmem2
 =====
 
-Arduino Mega 1280/2560 and PJRC Teensy++2.0 xmem compatible library with auto-size features and real preemptive multitasking.
+Arduino Mega 1280/2560 and PJRC Teensy++2.0 xmem compatible library with auto-size features and real preemptive multitasking. Also provides ISR safe malloc for all AVR arduinos, and all Teensy products from PJRC.com.
 
 <pre>
+Teensy 3.x support:
+ISR safe libc memory management. 
+No multitasking features at this time.
+
+<HR>
+
+AVR Support:
+
 * IMPORTANT! PLEASE USE Arduino 1.0.5 or better!
       Older versions HAVE MAJOR BUGS AND WILL NOT WORK AT ALL!
       Use of gcc-avr and lib-c that is newer than the Arduino version is even better.
