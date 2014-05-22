@@ -1,6 +1,6 @@
 #if defined(__AVR__)
 /*
- * xmem.cpp
+ * xmem.h
  *
  *  Created on: 21 Aug 2011
  *      Author: Andy Brown
@@ -196,6 +196,7 @@ typedef struct {
 } memory_stream;
 #endif
 
+#ifdef __cplusplus
 namespace xmem {
 
         /*
@@ -308,6 +309,7 @@ extern volatile uint8_t xmem_i2c_lock;
 #else
 #define XMEM_ACQUIRE_I2C(...) (void(0))
 #define XMEM_RELEASE_I2C(...) (void(0))
+#endif
 #endif
 #endif
 #endif
