@@ -77,5 +77,9 @@ struct _reent *ptr;
 #endif
 #endif
 }
-
+#else
+// This is needed to keep the compiler happy...
+int mlock_null(void) {
+  return 0;
+}
 #endif
