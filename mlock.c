@@ -58,8 +58,8 @@ struct _reent *ptr;
         __lock_acquire_recursive(__malloc_lock_object);
 #else
 #ifdef __ISR_SAFE_MALLOC__
-        cli();
-        im++;
+        noInterrupts();
+        __isr_safety++;
 #endif
 #endif
 }
@@ -72,8 +72,8 @@ struct _reent *ptr;
         __lock_release_recursive(__malloc_lock_object);
 #else
 #ifdef __ISR_SAFE_MALLOC__
-        if(im) im--;
-        if(!im) sei();
+        if(__isr_safety) __isr_safety--;
+        if(!__isr_safety) interrupts();
 #endif
 #endif
 }
