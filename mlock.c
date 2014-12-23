@@ -1,6 +1,13 @@
-#if defined(CORE_TEENSY) && defined(__arm__)
 /* Modified from newlib-2012.09 to support ISR safety. */
-#define __ISR_SAFE_MALLOC__ 1
+
+#include <limits.h>
+#if defined(_NEWLIB_VERSION) && defined(__arm__)
+#include <Arduino.h>
+#include <malloc.h>
+#include <sys/lock.h>
+
+/* Indicate that we are to use ISR safty. */
+#define __USE_ISR_SAFE_MALLOC__ 1
 
 /*
 FUNCTION
