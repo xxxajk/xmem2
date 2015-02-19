@@ -1,7 +1,13 @@
-#include <Arduino.h>
-#if defined(CORE_TEENSY) && defined(__arm__)
 /* Modified from newlib-2012.09 to support ISR safety. */
-#define __ISR_SAFE_MALLOC__ 1
+
+#include <limits.h>
+#if defined(_NEWLIB_VERSION) && defined(__arm__)
+#include <Arduino.h>
+#include <malloc.h>
+#include <sys/lock.h>
+
+/* Indicate that we are to use ISR safety. */
+#define __USE_ISR_SAFE_MALLOC__ 1
 
 /*
 FUNCTION
@@ -30,7 +36,7 @@ the memory pool.  The version of these routines supplied in the library use
 the lock API defined in sys/lock.h.  If multiple threads of execution can
 call <<malloc>>, or if <<malloc>> can be called reentrantly, then you need to
 define your own versions of these functions in order to safely lock the
-memory pool during a call.  If you dxmemo not, the memory pool may become
+memory pool during a call.  If you do not, the memory pool may become
 corrupted.
 
 A call to <<malloc>> may call <<__malloc_lock>> recursively; that is,
@@ -40,28 +46,28 @@ routines must be careful to avoid causing a thread to wait for a lock
 that it already holds.
  */
 
-#include <malloc.h>
-#include <sys/lock.h>
 
 #ifndef __SINGLE_THREAD__
+__attribute__((unused))
 __LOCK_INIT_RECURSIVE(static, __malloc_lock_object);
 #endif
 
-#ifdef __ISR_SAFE_MALLOC__
-static unsigned long __isr_safety = 0;
-static uint8_t irecover;
+#ifdef __USE_ISR_SAFE_MALLOC__
+static volatile unsigned long __isr_safety = 0;
 
-#ifndef interruptsStatus
-#define interruptsStatus() __interruptsStatus()
-static inline unsigned char __interruptsStatus(void) __attribute__((always_inline, unused));
+//static volatile uint8_t irecover;
 
-static inline unsigned char __interruptsStatus(void) {
-        unsigned int primask;
-        asm volatile ("mrs %0, primask" : "=r" (primask));
-        if(primask) return 0;
-        return 1;
-}
-#endif
+//#ifndef interruptsStatus
+//#define interruptsStatus() __interruptsStatus()
+//static inline unsigned char __interruptsStatus(void) __attribute__((always_inline, unused));
+//
+//static inline unsigned char __interruptsStatus(void) {
+//        unsigned int primask;
+//        asm volatile ("mrs %0, primask" : "=r" (primask));
+//        if(primask) return 0;
+//        return 1;
+//}
+//#endif
 
 #endif
 
@@ -69,13 +75,17 @@ void
 __malloc_lock(ptr)
 struct _reent *ptr;
 {
-#ifdef __ISR_SAFE_MALLOC__
-        uint8_t irestore;
-        if(!__isr_safety) {
-                irestore = interruptsStatus();
-                noInterrupts();
-                irecover = irestore;
-        }
+#ifdef __USE_ISR_SAFE_MALLOC__
+//        uint8_t i = interruptsStatus();
+        noInterrupts();
+#if 0
+        // debugging, pin 2 LOW
+        digitalWrite(2, LOW);
+#endif
+
+//        if(!__isr_safety) {
+//                irecover = i;
+//        }
         __isr_safety++;
 #endif
 #ifndef __SINGLE_THREAD__
@@ -90,10 +100,18 @@ struct _reent *ptr;
 #ifndef __SINGLE_THREAD__
         __lock_release_recursive(__malloc_lock_object);
 #endif
-#ifdef __ISR_SAFE_MALLOC__
+#ifdef __USE_ISR_SAFE_MALLOC__
         if(__isr_safety) {
                 __isr_safety--;
-                if((!__isr_safety) && irecover) interrupts();
+//                if(!__isr_safety && irecover) interrupts();
+        }
+        if(!__isr_safety) {
+#if 0
+        // debugging, pin 2 HIGH
+        digitalWrite(2, HIGH);
+#endif
+
+                interrupts();
         }
 #endif
 }
