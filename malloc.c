@@ -200,7 +200,7 @@ _free(void *p) {
         if(p == NULL)
                 return;
 
-        if(p < __malloc_heap_start) return; // Don't free, out of range.
+        if((char *)p < __malloc_heap_start) return; // Don't free, out of range.
         cpnew = p;
         cpnew -= sizeof(size_t);
         fpnew = (struct __freelist *) cpnew;
@@ -286,7 +286,7 @@ _realloc(void *ptr, size_t len) {
         if(ptr == NULL)
                 return _malloc(len);
 
-        if(ptr < __malloc_heap_start) goto move_it; // Don't extend, and won't free.
+        if((char *)ptr < __malloc_heap_start) goto move_it; // Don't extend, and won't free.
         cp1 = (char *) ptr;
         cp1 -= sizeof(size_t);
         fp1 = (struct __freelist *) cp1;

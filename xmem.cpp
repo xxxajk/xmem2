@@ -37,10 +37,12 @@
  *       (thanks to Gene Reeves).
  *
  */
-#include "xmem.h"
+#if defined(XMEM_H) && !defined(XMEM_LOADED)
 
 #if defined(XMEM_MULTIPLE_APP)
 volatile unsigned int keepstack; // original stack pointer on the avr.
+
+volatile uint32_t isr_6_push;
 static char cpybuf[_RAM_COPY_SZ + 8]; // copy buffer for bank <-> bank copy
 #endif
 
@@ -50,11 +52,15 @@ volatile uint8_t xmem_spi_lock = 0;
 #if XMEM_I2C_LOCK
 volatile uint8_t xmem_i2c_lock = 0;
 #endif
-
+#define XMEM_SOFT_CLI() xmem::SoftCLI()
+#define XMEM_SOFT_SEI() xmem::SoftSEI()
 extern "C" {
 
-        unsigned int getHeapend() {
-                extern unsigned int __heap_start;
+        extern unsigned int __heap_start;
+        extern void *__brkval;
+        extern void *__flp;
+
+        unsigned int AJK_NI getHeapend() {
 
                 if((unsigned int)__brkval == 0) {
                         return (unsigned int)&__heap_start;
@@ -73,6 +79,8 @@ extern "C" {
 }
 
 namespace xmem {
+
+        uint8_t max_banks = XMEM_MAX_BANK_HEAPS;
 
         /*
          * State for all banks
@@ -98,15 +106,108 @@ namespace xmem {
         volatile task tasks[USE_MULTIPLE_APP_API];
 #endif
 
+        /*
+         * Save the heap variables
+         */
+
+        void AJK_NI saveHeap(uint8_t bank_) {
+#if EXT_RAM
+                if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
+                bankHeapStates[bank_].__malloc_heap_start = __malloc_heap_start;
+                bankHeapStates[bank_].__malloc_heap_end = __malloc_heap_end;
+                bankHeapStates[bank_].__brkval = __brkval;
+                bankHeapStates[bank_].__flp = __flp;
+#endif
+        }
+
+        /*
+         * Restore the heap variables
+         */
+
+        void AJK_NI restoreHeap(uint8_t bank_) {
+#if EXT_RAM
+                if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
+                __malloc_heap_start = bankHeapStates[bank_].__malloc_heap_start;
+                __malloc_heap_end = bankHeapStates[bank_].__malloc_heap_end;
+                __brkval = bankHeapStates[bank_].__brkval;
+                __flp = bankHeapStates[bank_].__flp;
+#endif
+        }
+
+        void AJK_NI setupHeap(void) {
+                __malloc_heap_end = static_cast<char *>(XMEM_END);
+                __malloc_heap_start = static_cast<char *>(XMEM_START);
+                __brkval = static_cast<char *>(XMEM_START);
+
+        }
+
+        /*
+         * Set the memory bank
+         */
+
+        void AJK_NI setMemoryBank(uint8_t bank_, bool switchHeap_) {
+#if EXT_RAM
+                if(totalBanks < 2) return;
+
+                // check
+
+                if(bank_ == currentBank)
+                        return;
+
+                // save heap state if requested
+
+                if(switchHeap_)
+                        saveHeap(currentBank);
+
+                // switch in the new bank
+#if defined(CORE_TEENSY)
+                // Write lower 3 bits of 'bank' to Port F
+                PORTF = (PORTF & 0xF8) | (bank_ & 0x7);
+#elif defined(RUGGED_CIRCUITS_SHIELD)
+                // Write lower 3 bits of 'bank' to upper 3 bits of Port L
+                PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
+#elif defined(ANDY_BROWN_SHIELD)
+                if((bank_ & 1) != 0)
+                        PORTD |= _BV(PD7);
+                else
+                        PORTD &= ~_BV(PD7);
+
+                if((bank_ & 2) != 0)
+                        PORTL |= _BV(PL7);
+                else
+                        PORTL &= ~_BV(PL7);
+
+                if((bank_ & 4) != 0)
+                        PORTL |= _BV(PL6);
+                else
+                        PORTL &= ~_BV(PL6);
+#endif
+#if defined(XMEM_MULTIPLE_APP)
+                if(bank_ & (1 << 3)) {
+                        PORTC |= _BV(PC7);
+                } else {
+                        PORTC &= ~_BV(PC7);
+                }
+#endif
+
+                // save state and restore the malloc settings for this bank
+
+                currentBank = bank_;
+
+                if(switchHeap_)
+                        restoreHeap(bank_);
+#endif
+        }
+
         /* Auto-size how many banks we have.
          * Note that 256 banks is not possible due to the limits of uint8_t.
          * However this code is future-proof for very large external RAM.
          */
-        uint8_t getcurrentBank(void) {
+        uint8_t AJK_NI getcurrentBank(void) {
                 return currentBank;
         }
 
-        uint8_t Autosize(bool stackInXmem_) {
+        uint8_t AJK_NI Autosize(bool stackInXmem_) {
                 uint8_t banks = 0;
 #if !defined(XMEM_MULTIPLE_APP)
                 if(stackInXmem_) {
@@ -158,14 +259,14 @@ namespace xmem {
         /*
          * Return total banks found.
          */
-        uint8_t getTotalBanks() {
+        uint8_t AJK_NI getTotalBanks() {
                 return totalBanks;
         }
 
         /*
          * Initial setup. You must call this once
          */
-        void begin(bool heapInXmem_, bool stackInXmem) {
+        void AJK_NI begin(bool heapInXmem_, bool stackInXmem) {
 
                 totalBanks = 0;
 
@@ -254,13 +355,13 @@ namespace xmem {
 #endif
         }
 
-        void begin(bool heapInXmem_) {
+        void AJK_NI begin(bool heapInXmem_) {
                 begin(heapInXmem_, EXT_RAM_STACK);
         }
 
         // Switch memory bank, but do not record the bank
 
-        void flipBank(uint8_t bank_) {
+        void AJK_NI flipBank(uint8_t bank_) {
 #if EXT_RAM
                 // switch in the new bank
 #if defined(CORE_TEENSY)
@@ -295,110 +396,32 @@ namespace xmem {
 #endif
         }
 
-        /*
-         * Set the memory bank
-         */
-
-        void setMemoryBank(uint8_t bank_, bool switchHeap_) {
-#if EXT_RAM
-                if(totalBanks < 2) return;
-
-                // check
-
-                if(bank_ == currentBank)
-                        return;
-
-                // save heap state if requested
-
-                if(switchHeap_)
-                        saveHeap(currentBank);
-
-                // switch in the new bank
-#if defined(CORE_TEENSY)
-                // Write lower 3 bits of 'bank' to Port F
-                PORTF = (PORTF & 0xF8) | (bank_ & 0x7);
-#elif defined(RUGGED_CIRCUITS_SHIELD)
-                // Write lower 3 bits of 'bank' to upper 3 bits of Port L
-                PORTL = (PORTL & 0x1F) | ((bank_ & 0x7) << 5);
-#elif defined(ANDY_BROWN_SHIELD)
-                if((bank_ & 1) != 0)
-                        PORTD |= _BV(PD7);
-                else
-                        PORTD &= ~_BV(PD7);
-
-                if((bank_ & 2) != 0)
-                        PORTL |= _BV(PL7);
-                else
-                        PORTL &= ~_BV(PL7);
-
-                if((bank_ & 4) != 0)
-                        PORTL |= _BV(PL6);
-                else
-                        PORTL &= ~_BV(PL6);
-#endif
-#if defined(XMEM_MULTIPLE_APP)
-                if(bank_ & (1 << 3)) {
-                        PORTC |= _BV(PC7);
-                } else {
-                        PORTC &= ~_BV(PC7);
-                }
-#endif
-
-                // save state and restore the malloc settings for this bank
-
-                currentBank = bank_;
-
-                if(switchHeap_)
-                        restoreHeap(bank_);
-#endif
-        }
-
-        /*
-         * Save the heap variables
-         */
-
-        void saveHeap(uint8_t bank_) {
-#if EXT_RAM
-                if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
-                bankHeapStates[bank_].__malloc_heap_start = __malloc_heap_start;
-                bankHeapStates[bank_].__malloc_heap_end = __malloc_heap_end;
-                bankHeapStates[bank_].__brkval = __brkval;
-                bankHeapStates[bank_].__flp = __flp;
-#endif
-        }
-
-        /*
-         * Restore the heap variables
-         */
-
-        void restoreHeap(uint8_t bank_) {
-#if EXT_RAM
-                if(totalBanks < 2 || bank_ >= XMEM_MAX_BANK_HEAPS) return;
-                __malloc_heap_start = bankHeapStates[bank_].__malloc_heap_start;
-                __malloc_heap_end = bankHeapStates[bank_].__malloc_heap_end;
-                __brkval = bankHeapStates[bank_].__brkval;
-                __flp = bankHeapStates[bank_].__flp;
-#endif
-        }
-
-        void setupHeap(void) {
-                __malloc_heap_end = static_cast<char *>(XMEM_END);
-                __malloc_heap_start = static_cast<char *>(XMEM_START);
-                __brkval = static_cast<char *>(XMEM_START);
-
-        }
-
 
 #if defined(XMEM_MULTIPLE_APP)
 
-        /* comming soon...
-        void Dump_one(int id) {
-                cli();
+        /**
+         * Yield CPU to another task.
+         */
+        void AJK_NI Yield(void) {
+                noInterrupts();
+                if(tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
+                interrupts();
+                // GAH! Arduino's interrupt cruft fucks us, so we can't do it this way.
+                // PORTE ^= _BV(PE6); // forced IRQ :-D
+                TCNT3 = CLK_CMP - 1;
+                while(tasks[currentBank].state == XMEM_STATE_YIELD); // Arduino makes us waste CPU :-()
+        }
+
+
+
+        /* coming soon...
+        void __attribute__ ((noinline)) Dump_one(int id) {
+                noInterrupts();
                 register uint16_t start = bankHeapStates[id].__malloc_heap_start;
                 register uint16_t end = bankHeapStates[id].__malloc_heap_end;
                 register uint16_t bk = bankHeapStates[id].__brkval;
                 register uint16_t sk = ...
-                sei();
+                interrupts();
         }
          *
          */
@@ -409,7 +432,7 @@ namespace xmem {
          *
          * @param p memory copier pipe in AVR RAM to initialize
          */
-        void memory_init(memory_stream *p) {
+        void AJK_NI memory_init(memory_stream *p) {
                 p->ready = false;
         }
 
@@ -418,20 +441,20 @@ namespace xmem {
          *  This allows for large operations such as copy of memory areas,
          *  so that the Arduino's millis() gets updated, and other IRQ can happen.
          */
-        void SoftCLI(void) {
-                cli();
+        void AJK_NI SoftCLI(void) {
+                noInterrupts();
                 tasks[currentBank].state = XMEM_STATE_HOG_CPU;
-                sei();
+                interrupts();
         }
 
         /**
          *  Soft sei()-- Allows context switching to another task.
          *  @see SoftCLI
          */
-        void SoftSEI(void) {
-                cli();
+        void AJK_NI SoftSEI(void) {
+                noInterrupts();
                 tasks[currentBank].state = XMEM_STATE_RUNNING;
-                sei();
+                interrupts();
         }
 
         /**
@@ -441,19 +464,19 @@ namespace xmem {
          * Allocate an extra bank for this task.
          *
          */
-        uint8_t AllocateExtraBank(void) {
-                cli();
+        uint8_t AJK_NI AllocateExtraBank(void) {
+                noInterrupts();
                 for(int i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
                         if(i == currentBank) continue; // Don't free or check current task!
                         if(tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
                         if(tasks[i].state == XMEM_STATE_FREE) {
                                 tasks[i].state = XMEM_STATE_USED; //
                                 tasks[i].parent = currentBank; // parent
-                                sei();
+                                interrupts();
                                 return i;
                         }
                 }
-                sei();
+                interrupts();
                 return 0;
         }
 
@@ -465,12 +488,12 @@ namespace xmem {
          * Free an allocated bank or kill a task.
          * Bank or task must be owned by parent task.
          */
-        void FreeBank(uint8_t bank) {
-                cli();
+        void AJK_NI FreeBank(uint8_t bank) {
+                noInterrupts();
                 if(currentBank == tasks[bank].parent) {
                         tasks[bank].state = XMEM_STATE_FREE;
                 }
-                sei();
+                interrupts();
         }
 
         /**
@@ -478,10 +501,10 @@ namespace xmem {
          * @param p memory copier pipe in AVR RAM
          * @return status
          */
-        boolean memory_ready(memory_stream *p) {
-                cli();
-                boolean rv = p->ready;
-                sei();
+        bool AJK_NI memory_ready(memory_stream *p) {
+                noInterrupts();
+                bool rv = p->ready;
+                interrupts();
                 return rv;
         }
 
@@ -491,18 +514,18 @@ namespace xmem {
          * @param length length of the data
          * @param p memory copier pipe in AVR RAM
          */
-        void memory_send(uint8_t *data, uint16_t length, memory_stream *p) {
+        void AJK_NI memory_send(uint8_t *data, uint16_t length, memory_stream *p) {
                 while(p->ready) Yield(); // Since multiple senders are possible, wait.
-                cli();
+                noInterrupts();
                 p->data = data;
                 p->data_len = length;
                 p->bank = currentBank;
                 p->ready = true;
-                sei();
+                interrupts();
                 while(p->ready) Yield(); // Wait here, because caller may free right after!
         }
 
-        void *safe_malloc(size_t x) {
+        void * AJK_NI safe_malloc(size_t x) {
                 void *data = malloc(x);
                 if(data == NULL) {
                         Serial.write("\r\n\r\nOOM LEN=");
@@ -515,26 +538,32 @@ namespace xmem {
                 return data;
         }
 
-        /**
-         *
-         * @param data pointer to be allocated
-         * @param p memory copier pipe in AVR RAM
-         * @return length of message
-         */
-        uint16_t memory_recv(uint8_t **data, memory_stream *p) {
-                while(!p->ready) Yield();
-                *data = (uint8_t *)safe_malloc(p->data_len);
-                copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
-                cli();
-                register uint16_t length = p->data_len;
-                p->ready = false;
-                sei();
-                return length;
-        }
-
-
 
         // byte based pipes, much like un*x
+
+        /**
+         *
+         * @param c 8bit data
+         * @param p pipe in AVR RAM
+         */
+        void AJK_NI pipe_put(uint8_t c, pipe_stream *p) {
+                while(p->ready) Yield();
+                p->data = c;
+                p->ready = true;
+        }
+
+        /**
+         *
+         * @param p pipe in AVR RAM
+         * @return 8bit data
+         */
+        uint8_t AJK_NI pipe_get(pipe_stream *p) {
+                uint8_t c;
+                while(!p->ready) Yield();
+                c = p->data;
+                p->ready = false;
+                return c;
+        }
 
         /**
          *
@@ -542,7 +571,7 @@ namespace xmem {
          * @param len length of message
          * @param p pipe to send message on in AVR RAM
          */
-        void pipe_send_message(uint8_t *message, int len, pipe_stream *p) {
+        void AJK_NI pipe_send_message(uint8_t *message, int len, pipe_stream *p) {
                 pipe_put(len & 0xff, p);
                 pipe_put((len >> 8) & 0xff, p);
                 while(len) {
@@ -558,7 +587,7 @@ namespace xmem {
          * @param p pipe to receive data from in AVR RAM
          * @return length of message
          */
-        int pipe_recv_message(uint8_t **message, pipe_stream *p) {
+        int AJK_NI pipe_recv_message(uint8_t **message, pipe_stream *p) {
                 int len;
                 int rv;
                 len = pipe_get(p);
@@ -579,10 +608,10 @@ namespace xmem {
          * @param p pipe in AVR RAM to check
          * @return status
          */
-        boolean pipe_ready(pipe_stream *p) {
-                cli();
-                boolean rv = p->ready;
-                sei();
+        bool AJK_NI pipe_ready(pipe_stream *p) {
+                noInterrupts();
+                bool rv = p->ready;
+                interrupts();
                 return rv;
         }
 
@@ -597,32 +626,8 @@ namespace xmem {
          *      Depth can be variable by placing the pointer to the buffer in
          *      AVR ram. i.e. init with an pointer to buffer, and size.
          */
-        void pipe_init(pipe_stream *p) {
+        void AJK_NI pipe_init(pipe_stream *p) {
                 p->ready = false;
-        }
-
-        /**
-         *
-         * @param c 8bit data
-         * @param p pipe in AVR RAM
-         */
-        void pipe_put(uint8_t c, pipe_stream *p) {
-                while(p->ready) Yield();
-                p->data = c;
-                p->ready = true;
-        }
-
-        /**
-         *
-         * @param p pipe in AVR RAM
-         * @return 8bit data
-         */
-        uint8_t pipe_get(pipe_stream *p) {
-                uint8_t c;
-                while(!p->ready) Yield();
-                c = p->data;
-                p->ready = false;
-                return c;
         }
 
         /**
@@ -633,28 +638,28 @@ namespace xmem {
          * @param length length to copy
          * @param db destination task
          */
-        void copy_to_task(void *d, void *s, uint16_t length, uint8_t db) {
+        void AJK_NI copy_to_task(void *d, void *s, uint16_t length, uint8_t db) {
                 SoftCLI();
-                cli();
+                noInterrupts();
                 register uint8_t mb = currentBank;
                 register uint8_t ob = db;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 register unsigned int csp = SP;
-                sei();
+                interrupts();
                 while(length) {
                         register uint16_t l = length;
                         if(l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
                         memcpy(cpybuf, ss, l);
-                        cli();
+                        noInterrupts();
                         SP = keepstack; // original on-chip ram
                         flipBank(ob);
-                        sei();
+                        interrupts();
                         memcpy(dd, cpybuf, l);
-                        cli();
+                        noInterrupts();
                         flipBank(mb);
                         SP = csp;
-                        sei();
+                        interrupts();
                         length -= l;
                         ss += l;
                         dd += l;
@@ -670,27 +675,27 @@ namespace xmem {
          * @param length length to copy
          * @param sb source task
          */
-        void copy_from_task(void *d, void *s, uint16_t length, uint8_t sb) {
+        void AJK_NI copy_from_task(void *d, void *s, uint16_t length, uint8_t sb) {
                 SoftCLI();
-                cli();
+                noInterrupts();
                 register uint8_t mb = currentBank;
                 register uint8_t ob = sb;
                 register char *ss = (char *)s;
                 register char *dd = (char *)d;
                 register unsigned int csp = SP;
-                sei();
+                interrupts();
                 while(length) {
                         register uint16_t l = length;
                         if(l > _RAM_COPY_SZ) l = _RAM_COPY_SZ;
-                        cli();
+                        noInterrupts();
                         SP = keepstack;
                         flipBank(ob);
-                        sei();
+                        interrupts();
                         memcpy(cpybuf, ss, l);
-                        cli();
+                        noInterrupts();
                         flipBank(mb);
                         SP = csp;
-                        sei();
+                        interrupts();
                         memcpy(dd, cpybuf, l);
                         length -= l;
                         ss += l;
@@ -700,9 +705,26 @@ namespace xmem {
         }
 
         /**
+         *
+         * @param data pointer to be allocated
+         * @param p memory copier pipe in AVR RAM
+         * @return length of message
+         */
+        uint16_t AJK_NI memory_recv(uint8_t **data, memory_stream *p) {
+                while(!p->ready) Yield();
+                *data = (uint8_t *)safe_malloc(p->data_len);
+                copy_from_task((void *)(*data), (void *)(p->data), p->data_len, p->bank);
+                noInterrupts();
+                register uint16_t length = p->data_len;
+                p->ready = false;
+                interrupts();
+                return length;
+        }
+
+        /**
          * @return which task started this task.
          */
-        uint8_t Task_Parent() {
+        uint8_t AJK_NI Task_Parent() {
                 return tasks[currentBank].parent;
         }
 
@@ -713,7 +735,7 @@ namespace xmem {
          *
          * Only the parent or child process should call this.
          */
-        boolean Is_Running(uint8_t which) {
+        bool AJK_NI Is_Running(uint8_t which) {
                 if((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return false;
                 return (tasks[which].state == XMEM_STATE_RUNNING || tasks[which].state == XMEM_STATE_SLEEP);
         }
@@ -726,7 +748,7 @@ namespace xmem {
          * Only the parent or child process should call this.
          *
          */
-        boolean Is_Done(uint8_t which) {
+        bool AJK_NI Is_Done(uint8_t which) {
                 if((tasks[which].parent != currentBank) || (tasks[currentBank].parent != which)) return true;
                 return (tasks[which].state == XMEM_STATE_DEAD);
         }
@@ -736,7 +758,7 @@ namespace xmem {
          * @param which task ID
          * @return state of this task.
          */
-        uint8_t Task_State(uint8_t which) {
+        uint8_t AJK_NI Task_State(uint8_t which) {
                 return tasks[currentBank].state;
         }
 
@@ -746,7 +768,7 @@ namespace xmem {
          * @return task is a child of calling task.
          *
          */
-        boolean Task_Is_Mine(uint8_t which) {
+        bool AJK_NI Task_Is_Mine(uint8_t which) {
                 return (tasks[which].parent == currentBank);
         }
 
@@ -754,26 +776,26 @@ namespace xmem {
          *
          * @param object Caution, must be in AVR RAM
          */
-        void Lock_Acquire(volatile uint8_t *object) {
+        void AJK_NI Lock_Acquire(volatile uint8_t *object) {
 retry_lock:
-                cli();
+                noInterrupts();
                 if(*object != 0) {
-                        sei();
+                        interrupts();
                         Yield();
                         goto retry_lock;
                 }
                 *object = 1;
-                sei();
+                interrupts();
         }
 
         /**
          *
          * @param object Caution, must be in AVR RAM
          */
-        void Lock_Release(volatile uint8_t *object) {
-                cli();
+        void AJK_NI Lock_Release(volatile uint8_t *object) {
+                noInterrupts();
                 *object = 0;
-                sei();
+                interrupts();
         }
 
         /**
@@ -800,9 +822,9 @@ retry_lock:
          * do the math, roughly 2x the 50us delay, half the resolution of 50us. Duh ;-)
          *
          */
-        void Sleep(uint64_t sleep) {
+        void AJK_NI Sleep(uint64_t sleep) {
                 if(sleep == 0) return; // what? :-)
-                cli();
+                noInterrupts();
 #ifdef hundredus
                 tasks[currentBank].sleep = sleep;
 #else
@@ -813,7 +835,7 @@ retry_lock:
 #endif
 #endif
                 tasks[currentBank].state = XMEM_STATE_SLEEP;
-                sei();
+                interrupts();
                 while(tasks[currentBank].state == XMEM_STATE_SLEEP) Yield();
         }
 
@@ -824,12 +846,12 @@ retry_lock:
          * Do nothing if task is not a child of this parent, or the parent of this process
          *
          */
-        void StartTask(uint8_t which) {
+        void AJK_NI StartTask(uint8_t which) {
                 if(tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
-                cli();
+                noInterrupts();
                 if(tasks[which].state == XMEM_STATE_PAUSED) tasks[which].state = XMEM_STATE_RUNNING; // running
                 else if(tasks[which].state == XMEM_STATE_SLEEP) tasks[which].state = XMEM_STATE_RUNNING; // running
-                sei();
+                interrupts();
         }
 
         /**
@@ -839,50 +861,28 @@ retry_lock:
          * Do nothing if task is not a child of this parent, or the parent of this process
          *
          */
-        void PauseTask(uint8_t which) {
+        void AJK_NI PauseTask(uint8_t which) {
                 if(tasks[currentBank].parent != which && tasks[which].parent != currentBank) return;
                 while(tasks[which].state == XMEM_STATE_SLEEP) Yield();
-                cli();
+                noInterrupts();
                 if(tasks[which].state == XMEM_STATE_RUNNING) tasks[which].state = XMEM_STATE_PAUSED; // setup/pause state
-                sei();
+                interrupts();
         }
 
         /**
          * This is called when a task has exited.
          */
-        void TaskFinish(void) {
+        void AJK_NI TaskFinish(void) {
                 Serial.write("Task ended");
-                cli();
+                noInterrupts();
                 tasks[currentBank].state = XMEM_STATE_DEAD; // dead
-                sei();
+                interrupts();
                 Yield();
                 // should never come here
                 for(;;);
         }
 
-        // use the defaults from xmem.h, 8192 bytes
-
-        /**
-         *
-         * @param func function that becomes a new task.
-         * @return Task ID
-         *
-         * Uses the defaults from xmem.h, 8192 bytes
-         */
-        uint8_t SetupTask(void (*func)(void)) {
-                return SetupTask(func, (EXT_RAM_STACK_ARENA));
-        }
-
-        /**
-         *
-         * @param func function that becomes a new task.
-         * @param ofs How much space to reserve for the stack, 1024-30719
-         * @return Task ID, A task ID of 0 = failure.
-         *
-         * NOTE: NOT REENTRANT! Only one task at a time may allocate a new task.
-         * Collects tasks that have ended during search.
-         */
-        uint8_t SetupTask(void (*func)(void), unsigned int ofs) {
+        uint8_t AJK_NI SetupTask(void (*func)(void), unsigned int ofs) {
                 // r25:r24 contains func on 128x,
                 // r25:24:r22 for 256x?
                 cli();
@@ -890,10 +890,12 @@ retry_lock:
                 asm volatile ("pop r4");
                 asm volatile ("push r25"); // hi 8
                 asm volatile ("pop r5");
-#if defined (__AVR_ATmega2560__)
-                asm volatile ("push r22"); // loh8
-                asm volatile ("pop r3");
-#endif
+
+                //#if defined (__AVR_ATmega2560__)
+                //        asm volatile ("push r22"); // loh8
+                //        asm volatile ("pop r3");
+                //
+                //#endif
                 if(ofs > 30719 || ofs < 1024) {
                         sei();
                         return 0; // FAIL!
@@ -918,7 +920,6 @@ retry_lock:
                                 SP = keepstack; // original on-chip ram
                                 setMemoryBank(i, false);
                                 SP = tasks[i].sp;
-
                                 // Push task ending address. We lose r16 :-(
                                 asm volatile("ldi r16, lo8(%0)" ::"i" (TaskFinish));
                                 asm volatile ("push r16");
@@ -934,20 +935,18 @@ retry_lock:
                                 asm volatile ("push r4"); // lo8
                                 asm volatile ("push r5"); // hi8
 #if defined (__AVR_ATmega2560__)
+                                asm volatile("eor r3,r3");
                                 asm volatile ("push r3"); // hh8
 #endif
-
                                 // fill in all registers.
                                 // I save all because I may want to do tricks later on.
                                 asm volatile ("push r0");
-
                                 asm volatile ("in r0, __SREG__");
                                 asm volatile ("push r0");
                                 asm volatile ("in r0 , 0x3b");
                                 asm volatile ("push r0");
                                 asm volatile ("in r0 , 0x3c");
                                 asm volatile ("push r0");
-
                                 asm volatile ("push r1");
                                 asm volatile ("push r2");
                                 asm volatile ("push r3");
@@ -992,40 +991,29 @@ retry_lock:
                 return 0; // fail, task zero is always taken.
         }
 
+        /**
+         *
+         * @param func function that becomes a new task.
+         * @return Task ID
+         *
+         * Uses the defaults from xmem.h, 8192 bytes
+         */
+        uint8_t AJK_NI SetupTask(void (*func)(void)) {
+                return SetupTask(func, (EXT_RAM_STACK_ARENA));
+        }
         // Sleep timer ISR + context switch trigger
 
-        ISR(TIMER3_COMPA_vect, ISR_BLOCK) {
-                register uint8_t check;
+        //        ISR(TIMER3_COMPA_vect, ISR_BLOCK) {
 
-                for(check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
-                        if(tasks[check].state == XMEM_STATE_SLEEP) {
-                                if(tasks[check].sleep == 0llu) {
-                                        tasks[check].state = XMEM_STATE_RUNNING;
-                                } else {
-                                        tasks[check].sleep--;
-                                }
-                        }
-                }
-
-                PORTE ^= _BV(PE6); // forced IRQ :-D
-        }
-
-        // Context switch ISR, do what we need to do as fast as possible.
-        // We count what we do in here as part of the task time.
-        // Therefore, actual task time is variable.
-        // It may seem unfortunate that all registers must be pushed,
-        // but I like to save the entire context, because you never know what
-        // custom assembler may be using for registers.
-
-        ISR(INT6_vect, ISR_NAKED) {
+        ISR(TIMER3_COMPA_vect, ISR_NAKED) {
                 asm volatile ("push r0");
                 asm volatile ("in r0, __SREG__");
                 asm volatile ("push r0");
+                asm volatile ("cli");
                 asm volatile ("in r0 , 0x3b");
                 asm volatile ("push r0");
                 asm volatile ("in r0 , 0x3c");
                 asm volatile ("push r0");
-
                 asm volatile ("push r1");
                 asm volatile ("push r2");
                 asm volatile ("push r3");
@@ -1058,29 +1046,41 @@ retry_lock:
                 asm volatile ("push r30");
                 asm volatile ("push r31");
 
+                TCNT3 = 0;
+
                 register uint8_t check;
+
+                for(check = 0; check < XMEM_MAX_BANK_HEAPS; check++) {
+                        if(tasks[check].state == XMEM_STATE_SLEEP) {
+                                if(tasks[check].sleep == 0llu) {
+                                        tasks[check].state = XMEM_STATE_RUNNING;
+                                } else {
+                                        tasks[check].sleep--;
+                                }
+                        }
+                }
+                TCNT3 = 0;
+
                 if(tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
-                if(tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
+                if(tasks[currentBank].state != XMEM_STATE_HOG_CPU) {
 
-                for(check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
-                        if(tasks[check].state == XMEM_STATE_RUNNING) goto flip;
+                        check = currentBank;
+                        do {
+                                check++;
+                                if(check == XMEM_MAX_BANK_HEAPS) check = 0;
+                                if(tasks[check].state == XMEM_STATE_RUNNING) break;
+                        } while(check != currentBank);
+
+                        if(check != currentBank) { // skip if we are not context switching
+                                tasks[currentBank].sp = SP;
+                                SP = keepstack; // original on-chip ram
+                                setMemoryBank(check, true);
+                                SP = tasks[currentBank].sp;
+                                //digitalWrite(LED_BUILTIN, (currentBank & 1) ? HIGH : LOW);
+                        }
                 }
+                TCNT3 = 0;
 
-                // Check tasks before current.
-                for(check = 0; check < currentBank; check++) {
-                        if(tasks[check].state == XMEM_STATE_RUNNING) break;
-                }
-
-flip:
-
-                if(check != currentBank) { // skip if we are not context switching
-                        tasks[currentBank].sp = SP;
-                        SP = keepstack; // original on-chip ram
-                        setMemoryBank(check, true);
-                        SP = tasks[currentBank].sp;
-                }
-flop:
-                // Again!
                 asm volatile ("pop r31");
                 asm volatile ("pop r30");
                 asm volatile ("pop r29");
@@ -1122,17 +1122,19 @@ flop:
                 asm volatile ("reti");
         }
 
-        /**
-         * Yield CPU to another task.
-         */
-        void Yield(void) {
-                cli();
-                if(tasks[currentBank].state == XMEM_STATE_RUNNING) tasks[currentBank].state = XMEM_STATE_YIELD;
-                PORTE ^= _BV(PE6); // forced IRQ :-D
-                sei();
-
+        void AJK_NI MultitaskBegin(void) {
+                noInterrupts();
+                //attachInterrupt(6, Context_ISR, CHANGE);
+                //DDRE |= _BV(PE6);
+                // Set up task switching clock
+                TCCR3A = 0;
+                TCCR3B = 0;
+                OCR3A = CLK_CMP;
+                TCCR3B |= CLK_prescale8;
+                TCNT3 = 0;
+                TIMSK3 |= (1 << OCIE3A); // Enable timer
+                interrupts();
         }
-
 
 #else
 
@@ -1143,7 +1145,7 @@ flop:
          * memory banks so don't use it except in a test scenario.
          */
 
-        SelfTestResults selfTest() {
+        SelfTestResults AJK_NI selfTest() {
                 SelfTestResults results;
                 if(totalBanks == 0) {
                         results.succeeded = false;
@@ -1199,4 +1201,394 @@ flop:
 #endif
 #endif
 }
+
+
+#endif
+
+#endif
+
+
+#if 0
+
+uint8_t SetupTask(void (*func)(void), unsigned int ofs) {
+        // r25:r24 contains func on 128x,
+        // r25:24:r22 for 256x?
+        cli();
+        asm volatile ("push r24"); // lo8
+        asm volatile ("pop r4");
+        asm volatile ("push r25"); // hi 8
+        asm volatile ("pop r5");
+#if defined (__AVR_ATmega2560__)
+        asm volatile ("push r22"); // loh8
+        asm volatile ("pop r3");
+#endif
+        if(ofs > 30719 || ofs < 1024) {
+                sei();
+                return 0; // FAIL!
+        }
+        register unsigned int oldsp;
+        register uint8_t oldbank;
+        register int i;
+        for(i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
+                if(i == currentBank) continue; // Don't free or check current task!
+                if(tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
+                if(tasks[i].state == XMEM_STATE_FREE) {
+                        tasks[i].state = XMEM_STATE_PAUSED; // setting up/paused
+                        tasks[i].parent = currentBank; // parent
+                        tasks[i].sp = (0x7FFF + ofs);
+                        // (re)-set the arena pointers
+                        bankHeapStates[i].__malloc_heap_start = (char *)tasks[i].sp + 1;
+                        bankHeapStates[i].__brkval = bankHeapStates[i].__malloc_heap_start;
+                        bankHeapStates[i].__flp = NULL;
+                        // switch banks, and do setup
+                        oldbank = currentBank;
+                        oldsp = SP;
+                        SP = keepstack; // original on-chip ram
+                        setMemoryBank(i, false);
+                        SP = tasks[i].sp;
+                        // Push task ending address. We lose r16 :-(
+                        asm volatile("ldi r16, lo8(%0)" ::"i" (TaskFinish));
+                        asm volatile ("push r16");
+                        // hi8
+                        asm volatile("ldi r16, hi8(%0)" ::"i" (TaskFinish));
+                        asm volatile ("push r16");
+#if defined (__AVR_ATmega2560__)
+                        // hh8
+                        asm volatile("ldi r16, hh8(%0)" ::"i" (TaskFinish));
+                        asm volatile ("push r16");
+#endif
+                        // push function address
+                        asm volatile ("push r4"); // lo8
+                        asm volatile ("push r5"); // hi8
+#if defined (__AVR_ATmega2560__)
+                        asm volatile ("push r3"); // hh8
+#endif
+                        // fill in all registers.
+                        // I save all because I may want to do tricks later on.
+                        asm volatile ("push r0");
+                        asm volatile ("in r0, __SREG__");
+                        asm volatile ("push r0");
+                        asm volatile ("in r0 , 0x3b");
+                        asm volatile ("push r0");
+                        asm volatile ("in r0 , 0x3c");
+                        asm volatile ("push r0");
+                        asm volatile ("push r1");
+                        asm volatile ("push r2");
+                        asm volatile ("push r3");
+                        asm volatile ("push r4");
+                        asm volatile ("push r5");
+                        asm volatile ("push r6");
+                        asm volatile ("push r7");
+                        asm volatile ("push r8");
+                        asm volatile ("push r9");
+                        asm volatile ("push r10");
+                        asm volatile ("push r11");
+                        asm volatile ("push r12");
+                        asm volatile ("push r13");
+                        asm volatile ("push r14");
+                        asm volatile ("push r15");
+                        asm volatile ("push r16");
+                        asm volatile ("push r17");
+                        asm volatile ("push r18");
+                        asm volatile ("push r19");
+                        asm volatile ("push r20");
+                        asm volatile ("push r21");
+                        asm volatile ("push r22");
+                        asm volatile ("push r23");
+                        asm volatile ("push r24");
+                        asm volatile ("push r25");
+                        asm volatile ("push r26");
+                        asm volatile ("push r27");
+                        asm volatile ("push r28");
+                        asm volatile ("push r29");
+                        asm volatile ("push r30");
+                        asm volatile ("push r31");
+                        tasks[currentBank].sp = SP;
+                        SP = keepstack; // original on-chip ram
+                        setMemoryBank(oldbank, false);
+                        SP = oldsp; // original stack
+                        sei();
+                        return i; // success
+                }
+        }
+        // If we get here, we are out of task slots!
+        sei();
+        return 0; // fail, task zero is always taken.
+}
+
+// Context switch ISR, do what we need to do as fast as possible.
+// We count what we do in here as part of the task time.
+// Therefore, actual task time is variable.
+// It may seem unfortunate that all registers must be pushed,
+// but I like to save the entire context, because you never know what
+// custom assembler may be using for registers.
+
+ISR(INT6_vect, ISR_NAKED) {
+        asm volatile ("push r0");
+        asm volatile ("in r0, __SREG__");
+        asm volatile ("push r0");
+        asm volatile ("in r0 , 0x3b");
+        asm volatile ("push r0");
+        asm volatile ("in r0 , 0x3c");
+        asm volatile ("push r0");
+        asm volatile ("push r1");
+        asm volatile ("push r2");
+        asm volatile ("push r3");
+        asm volatile ("push r4");
+        asm volatile ("push r5");
+        asm volatile ("push r6");
+        asm volatile ("push r7");
+        asm volatile ("push r8");
+        asm volatile ("push r9");
+        asm volatile ("push r10");
+        asm volatile ("push r11");
+        asm volatile ("push r12");
+        asm volatile ("push r13");
+        asm volatile ("push r14");
+        asm volatile ("push r15");
+        asm volatile ("push r16");
+        asm volatile ("push r17");
+        asm volatile ("push r18");
+        asm volatile ("push r19");
+        asm volatile ("push r20");
+        asm volatile ("push r21");
+        asm volatile ("push r22");
+        asm volatile ("push r23");
+        asm volatile ("push r24");
+        asm volatile ("push r25");
+        asm volatile ("push r26");
+        asm volatile ("push r27");
+        asm volatile ("push r28");
+        asm volatile ("push r29");
+        asm volatile ("push r30");
+        asm volatile ("push r31");
+        register uint8_t check;
+        if(tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
+        if(tasks[currentBank].state == XMEM_STATE_HOG_CPU) goto flop;
+        for(check = currentBank + 1; check < XMEM_MAX_BANK_HEAPS; check++) {
+                if(tasks[check].state == XMEM_STATE_RUNNING) goto flip;
+        }
+        // Check tasks before current.
+        for(check = 0; check < currentBank; check++) {
+                if(tasks[check].state == XMEM_STATE_RUNNING) break;
+        }
+flip:
+        if(check != currentBank) { // skip if we are not context switching
+                tasks[currentBank].sp = SP;
+                SP = keepstack; // original on-chip ram
+                setMemoryBank(check, true);
+                SP = tasks[currentBank].sp;
+        }
+flop:
+        // Again!
+        asm volatile ("pop r31");
+        asm volatile ("pop r30");
+        asm volatile ("pop r29");
+        asm volatile ("pop r28");
+        asm volatile ("pop r27");
+        asm volatile ("pop r26");
+        asm volatile ("pop r25");
+        asm volatile ("pop r24");
+        asm volatile ("pop r23");
+        asm volatile ("pop r22");
+        asm volatile ("pop r21");
+        asm volatile ("pop r20");
+        asm volatile ("pop r19");
+        asm volatile ("pop r18");
+        asm volatile ("pop r17");
+        asm volatile ("pop r16");
+        asm volatile ("pop r15");
+        asm volatile ("pop r14");
+        asm volatile ("pop r13");
+        asm volatile ("pop r12");
+        asm volatile ("pop r11");
+        asm volatile ("pop r10");
+        asm volatile ("pop r9");
+        asm volatile ("pop r8");
+        asm volatile ("pop r7");
+        asm volatile ("pop r6");
+        asm volatile ("pop r5");
+        asm volatile ("pop r4");
+        asm volatile ("pop r3");
+        asm volatile ("pop r2");
+        asm volatile ("pop r1");
+        asm volatile ("pop r0");
+        asm volatile ("out 0x3c , r0");
+        asm volatile ("pop r0");
+        asm volatile ("out 0x3b , r0");
+        asm volatile ("pop r0");
+        asm volatile ("out __SREG__ , r0");
+        asm volatile ("pop r0");
+        asm volatile ("reti");
+}
+
+/**
+ *
+ * @param func function that becomes a new task.
+ * @param ofs How much space to reserve for the stack, 1024-30719
+ * @return Task ID, A task ID of 0 = failure.
+ *
+ * NOTE: NOT REENTRANT! Only one task at a time may allocate a new task.
+ * Collects tasks that have ended during search.
+ */
+uint8_t AJK_NI SetupTask(void (*func)(void), unsigned int ofs) {
+        int i = 0;
+        if(ofs < 30720 && ofs > 1023) {
+#ifdef __AVR_ATmega2560__
+                int sks = 28;
+#else
+                int sks = 25;
+#endif
+                uint32_t fvec = (uint32_t)func;
+                uint32_t fin = (uint32_t)TaskFinish;
+                unsigned char newstack[] = {
+
+#ifdef __AVR_ATmega2560__
+                        /*
+                         * HL
+                         */
+                        (uint8_t)((isr_6_push & 0x00ff0000LU) >> 16),
+#endif
+                        /*
+                         * LH   LL
+                         */
+                        (uint8_t)((isr_6_push & 0x0000ff00LU) >> 8),
+                        (uint8_t)((isr_6_push & 0x000000ffLU)),
+                        /*
+                         * Registers
+                         * R31  R30  R27  R26   R25   R24   R23   R22   R21   R20   R19   R18
+                         */
+                        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                        /*
+                         * Flags and special Registers
+                         * 0x3b 0x3f R0  R1
+                         */
+                        //0x3b
+                        0x00,
+                        //0x3f
+                        0x00,
+                        // R0 (tmp reg)
+                        0x00,
+                        // R1 (zero reg, MUST be zero!)
+                        0x00,
+
+                        /*
+                         * task location
+                         */
+#ifdef __AVR_ATmega2560__
+                        /*
+                         * HL
+                         */
+                        (uint8_t)((fvec & 0x00ff0000LU) >> 16),
+#endif
+                        /*
+                         * LH   LL
+                         */
+                        (uint8_t)((fvec & 0x0000ff00LU) >> 8),
+                        (uint8_t)((fvec & 0x000000ffLU)),
+
+                        /*
+                         *  TaskFinish
+                         */
+#ifdef __AVR_ATmega2560__
+                        /*
+                         * HL
+                         */
+                        (uint8_t)((fin & 0x00ff0000LU) >> 16),
+#endif
+                        /*
+                         * LH   LL
+                         */
+                        (uint8_t)((fin & 0x0000ff00LU) >> 8),
+                        (uint8_t)((fin & 0x000000ffLU)),
+
+                        /*
+                         *  Guard (reset)
+                         */
+#ifdef __AVR_ATmega2560__
+                        /*
+                         * HL
+                         */
+                        0,
+#endif
+                        /*
+                         * LH   LL
+                         */
+                        0, 0
+                        /*
+                         *  stack top
+                         */
+                };
+
+                noInterrupts();
+
+                for(i = 1; i < XMEM_MAX_BANK_HEAPS; i++) {
+                        if(i == currentBank) continue; // Don't free or check current task!
+                        if(tasks[i].state == XMEM_STATE_DEAD) tasks[i].state = XMEM_STATE_FREE; // collect a dead task.
+                        if(tasks[i].state == XMEM_STATE_FREE) {
+                                tasks[i].state = XMEM_STATE_PAUSED; // setting up/paused
+                                tasks[i].parent = currentBank; // parent
+                                tasks[i].sp = ((0x7FFFU + ofs));
+                                // (re)-set the arena pointers
+                                bankHeapStates[i].__malloc_heap_start = (char *)tasks[i].sp + 1;
+                                bankHeapStates[i].__brkval = bankHeapStates[i].__malloc_heap_start;
+                                bankHeapStates[i].__flp = NULL;
+                                tasks[i].sp -= sks;
+                                interrupts();
+                                copy_to_task((void *)tasks[i].sp, (void *)newstack, sks, i);
+                                //noInterrupts();
+                                tasks[i].sp--;
+                                break;
+                        }
+                }
+                interrupts();
+        }
+        if(i == XMEM_MAX_BANK_HEAPS) i = 0;
+        return i;
+}
+
+        void AJK_NI Context_ISR(void) {
+                noInterrupts();
+                //digitalWrite(LED_BUILTIN, (PORTE & _BV(PE6)) ? HIGH : LOW );
+                if(tasks[currentBank].state == XMEM_STATE_YIELD) tasks[currentBank].state = XMEM_STATE_RUNNING;
+                if(tasks[currentBank].state != XMEM_STATE_HOG_CPU) {
+
+                        uint8_t check = currentBank;
+                        do {
+                                check++;
+                                if(check == XMEM_MAX_BANK_HEAPS) check = 0;
+                                //if(tasks[check].state == XMEM_STATE_YIELD) tasks[check].state = XMEM_STATE_RUNNING;
+                                if(tasks[check].state == XMEM_STATE_RUNNING) break;
+                        } while(check != currentBank);
+
+                        if(check != currentBank) { // skip if we are not context switching
+                                tasks[currentBank].sp = SP;
+                                SP = keepstack; // original on-chip ram
+                                setMemoryBank(check, true);
+                                SP = tasks[currentBank].sp;
+                                digitalWrite(LED_BUILTIN, (currentBank & 1) ? HIGH : LOW);
+                        }
+                }
+                interrupts();
+        }
+
+        void AJK_NI Prepare_ISR(void) {
+                noInterrupts();
+#ifdef __AVR_ATmega2560__
+                // uint32_t *x = (uint32_t *)(SP);
+                uint16_t x = SP + 1;
+                isr_6_push = (*((uint8_t *)(x++)));
+                isr_6_push = isr_6_push << 8;
+                isr_6_push |= (*((uint8_t *)(x++)));
+                isr_6_push = isr_6_push << 8;
+                isr_6_push |= (*((uint8_t *)(x++)));
+#else
+                uint16_t x = SP + 1;
+                isr_6_push = (*((uint8_t *)(x++)));
+                isr_6_push = isr_6_push << 8;
+                isr_6_push |= (*((uint8_t *)(x++)));
+#endif
+                detachInterrupt(6);
+                interrupts();
+        }
 #endif

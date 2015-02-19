@@ -1,3 +1,4 @@
+
 #if defined(__AVR__)
 /*
  * xmem.h
@@ -15,11 +16,146 @@
 #if ARDUINO <= 104
 #error "Please upgrade your Arduino IDE to at least 1.0.5"
 #endif
-
 #ifndef XMEM_H
 #define XMEM_H
-// <Settings>
+#ifndef AJK_NI
+#define AJK_NI __attribute__((noinline))
+#endif
 
+#include <Arduino.h>
+#include <stdlib.h>
+#include <stdint.h>
+
+#define XMEM_STATE_FREE         0x00 // Thread is not running, free slot to use.
+#define XMEM_STATE_PAUSED       0x01 // Thread is paused.
+#define XMEM_STATE_USED         0x02 // Used bank by a task.
+#define XMEM_STATE_RUNNING      0x80 // Thread is running.
+#define XMEM_STATE_DEAD         0x81 // Thread has stopped running.
+#define XMEM_STATE_SLEEP        0x82 // Thread is sleeping.
+#define XMEM_STATE_WAKE         0x83 // Thread will be woken up on next context switch.
+#define XMEM_STATE_YIELD        0x84 // Thread is yielding control to another thread.
+#define XMEM_STATE_HOG_CPU      0x85 // Only run this thread, Don't context switch. This is a soft CLI.
+
+struct heapState {
+                char *__malloc_heap_start;
+                char *__malloc_heap_end;
+                void *__brkval;
+                void *__flp;
+};
+
+typedef struct {
+        volatile unsigned int sp; // stack pointer
+        volatile uint8_t state; // task state.
+        volatile uint8_t parent; // the task that started this task
+        volatile uint64_t sleep; // ms to sleep
+} task;
+
+// This structure is used to send single bytes between processes
+
+typedef struct {
+        uint8_t volatile data; // the data to transfer
+        bool volatile ready; // data available
+} pipe_stream;
+
+// This structure is used to send a chunk of memory between processes
+
+typedef struct {
+        uint8_t volatile *data; // pointer to the data available
+        uint16_t volatile data_len; // length to copy
+        uint8_t volatile bank; // bank the data is in
+        bool volatile ready; // data available
+} memory_stream;
+
+// extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
+
+//#ifdef __cplusplus
+#if 0
+namespace xmem {
+
+        uint8_t getcurrentBank(void);
+        void setupHeap(void);
+        void begin(bool heapInXmem_, bool stackInXmem);
+        void begin(bool heapInXmem_);
+        void setMemoryBank(uint8_t bank_, bool switchHeap_ = true);
+        void saveHeap(uint8_t bank_);
+        void restoreHeap(uint8_t bank_);
+        uint8_t getTotalBanks();
+
+        void Lock_Acquire(volatile uint8_t *object);
+        void Lock_Release(volatile uint8_t *object);
+        void Sleep(uint64_t sleep);
+        uint8_t SetupTask(void (*func)(void), unsigned int ofs);
+        uint8_t SetupTask(void (*func)(void));
+        void StartTask(uint8_t which);
+        void PauseTask(uint8_t which);
+        void TaskFinish(void);
+        void SoftCLI(void);
+        void SoftSEI(void);
+        uint8_t Task_Parent();
+        bool Is_Running(uint8_t which);
+        bool Is_Done(uint8_t which);
+        uint8_t Task_State(uint8_t which);
+        bool Task_Is_Mine(uint8_t which);
+        void Yield(void);
+        bool pipe_ready(pipe_stream *p);
+        void pipe_init(pipe_stream *p);
+        void pipe_put(uint8_t c, pipe_stream *p);
+        uint8_t pipe_get(pipe_stream *p);
+        void pipe_send_message(uint8_t *message, int len, pipe_stream *p);
+        int pipe_recv_message(uint8_t **message, pipe_stream *p);
+        void memory_init(memory_stream *p);
+        bool memory_ready(memory_stream *p);
+        void memory_send(uint8_t *data, uint16_t len, memory_stream *p);
+        uint16_t memory_recv(uint8_t **data, memory_stream *p);
+        void copy_to_task(void *d, void *s, uint16_t len, uint8_t db);
+        void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb);
+        void *safe_malloc(size_t x);
+        void SoftCLI(void);
+        void SoftSEI(void);
+        uint8_t AllocateExtraBank(void);
+        void FreeBank(uint8_t bank);
+
+        extern uint8_t max_banks;
+        extern uint8_t currentBank;
+        extern volatile task tasks[];
+        extern struct heapState bankHeapStates[];
+
+#if WANT_TEST_CODE
+
+        /*
+         * Results of a self-test run
+         */
+
+        struct SelfTestResults {
+                bool succeeded;
+                volatile uint8_t *failedAddress;
+                uint8_t failedBank;
+        };
+
+        SelfTestResults selfTest();
+#endif
+}
+#endif
+
+/*
+ * References to the private heap variables
+ */
+#ifdef __cplusplus
+extern "C" {
+#endif
+        extern void *__flp;
+        extern void *__brkval;
+        unsigned int freeHeap();
+#ifdef __cplusplus
+}
+#endif
+#endif
+
+
+
+#ifdef LOAD_XMEM
+
+// <Settings>
 // Please note, you only need to disable this if you want to optimize code size, and save a few bytes of RAM.
 // 0 to disable, 1 for Rugged Circuits, 2 for Andy Brown
 #ifndef EXT_RAM
@@ -95,7 +231,7 @@
 #endif
 
 // Set to zero to save one byte of ram, reduces code size.
-// Warning: Don't set to zero if you share SPI devices.
+// Warning: Don't set to zero if you share I2C devices.
 #ifndef XMEM_I2C_LOCK
 #define XMEM_I2C_LOCK 1
 #endif
@@ -105,7 +241,6 @@
 #define WANT_TEST_CODE 0
 // </Settings> No user serviceable parts below this point.
 
-#include <Arduino.h>
 
 #if !defined(XRAMEND)
 #error "XRAMEND NOT DEFINED, SORRY I CAN NOT USE THIS TOOLCHAIN!"
@@ -153,148 +288,21 @@
 #endif
 #endif
 
-#define XMEM_STACK_TOP          (0x7FFF + EXT_RAM_STACK_ARENA)
+#define XMEM_STACK_TOP          (0x7FFFU + EXT_RAM_STACK_ARENA)
 #define XMEM_START              ((void *)(XMEM_STACK_TOP + 1))
-#define XMEM_END                ((void *)0xFFFF)
-#define XMEM_STATE_FREE         0x00 // Thread is not running, free slot to use.
-#define XMEM_STATE_PAUSED       0x01 // Thread is paused.
-#define XMEM_STATE_USED         0x02 // Used bank by a task.
-#define XMEM_STATE_RUNNING      0x80 // Thread is running.
-#define XMEM_STATE_DEAD         0x81 // Thread has stopped running.
-#define XMEM_STATE_SLEEP        0x82 // Thread is sleeping.
-#define XMEM_STATE_WAKE         0x83 // Thread will be woken up on next context switch.
-#define XMEM_STATE_YIELD        0x84 // Thread is yielding control to another thread.
-#define XMEM_STATE_HOG_CPU      0x85 // Only run this thread, Don't context switch. This is a soft CLI.
-#endif
+#define XMEM_END                ((void *)0xFFFFU)
 
-#include <stdlib.h>
-#include <stdint.h>
+#endif
 
 #if defined(USE_MULTIPLE_APP_API)
 
-typedef struct {
-        volatile unsigned int sp; // stack pointer
-        volatile uint8_t state; // task state.
-        volatile uint8_t parent; // the task that started this task
-        volatile uint64_t sleep; // ms to sleep
-} task;
-
-// This structure is used to send single bytes between processes
-
-typedef struct {
-        uint8_t volatile data; // the data to transfer
-        boolean volatile ready; // data available
-} pipe_stream;
-
-// This structure is used to send a chunk of memory between processes
-
-typedef struct {
-        uint8_t volatile *data; // pointer to the data available
-        uint16_t volatile data_len; // length to copy
-        uint8_t volatile bank; // bank the data is in
-        boolean volatile ready; // data available
-} memory_stream;
 #endif
+
+
 
 #ifdef __cplusplus
-namespace xmem {
-
-        /*
-         * The currently selected bank (Also current task for multitasking)
-         */
-
-        uint8_t getcurrentBank(void);
-
-        /*
-         * State variables used by the heap
-         */
-        void setupHeap(void);
-
-        struct heapState {
-                char *__malloc_heap_start;
-                char *__malloc_heap_end;
-                void *__brkval;
-                void *__flp;
-        };
-
-        /*
-         * Prototypes for the management functions
-         */
-        void begin(bool heapInXmem_, bool stackInXmem);
-        void begin(bool heapInXmem_);
-        void setMemoryBank(uint8_t bank_, bool switchHeap_ = true);
-        void saveHeap(uint8_t bank_);
-        void restoreHeap(uint8_t bank_);
-        uint8_t getTotalBanks();
-
 #if defined(USE_MULTIPLE_APP_API)
-        void Lock_Acquire(volatile uint8_t *object);
-        void Lock_Release(volatile uint8_t *object);
-        void Sleep(uint64_t sleep);
-        uint8_t SetupTask(void (*func)(void), unsigned int ofs);
-        uint8_t SetupTask(void (*func)(void));
-        void StartTask(uint8_t which);
-        void PauseTask(uint8_t which);
-        void TaskFinish(void);
-        void SoftCLI(void);
-        void SoftSEI(void);
-        uint8_t Task_Parent();
-        boolean Is_Running(uint8_t which);
-        boolean Is_Done(uint8_t which);
-        uint8_t Task_State(uint8_t which);
-        boolean Task_Is_Mine(uint8_t which);
-        void Yield(void);
-        boolean pipe_ready(pipe_stream *p);
-        void pipe_init(pipe_stream *p);
-        void pipe_put(uint8_t c, pipe_stream *p);
-        uint8_t pipe_get(pipe_stream *p);
-        void pipe_send_message(uint8_t *message, int len, pipe_stream *p);
-        int pipe_recv_message(uint8_t **message, pipe_stream *p);
-        void memory_init(memory_stream *p);
-        boolean memory_ready(memory_stream *p);
-        void memory_send(uint8_t *data, uint16_t len, memory_stream *p);
-        uint16_t memory_recv(uint8_t **data, memory_stream *p);
-        void copy_to_task(void *d, void *s, uint16_t len, uint8_t db);
-        void copy_from_task(void *d, void *s, uint16_t len, uint8_t sb);
-        void *safe_malloc(size_t x);
-        void SoftCLI(void);
-        void SoftSEI(void);
-        uint8_t AllocateExtraBank(void);
-        void FreeBank(uint8_t bank);
-        // for debugging...
-        extern volatile task tasks[USE_MULTIPLE_APP_API];
-        extern struct heapState bankHeapStates[XMEM_MAX_BANK_HEAPS];
-#endif
-
-#if WANT_TEST_CODE
-
-        /*
-         * Results of a self-test run
-         */
-
-        struct SelfTestResults {
-                bool succeeded;
-                volatile uint8_t *failedAddress;
-                uint8_t failedBank;
-        };
-
-        SelfTestResults selfTest();
-#endif
-}
-
-/*
- * References to the private heap variables
- */
-
-extern "C" {
-        extern void *__flp;
-        extern void *__brkval;
-        unsigned int freeHeap();
-}
-#if defined(USE_MULTIPLE_APP_API)
-extern volatile unsigned int keepstack; // original stack pointer on the avr just after booting.
 #if XMEM_SPI_LOCK
-#include <SPI.h>
 #define XMEM_ACQUIRE_SPI(...) xmem::Lock_Acquire(&xmem_spi_lock)
 #define XMEM_RELEASE_SPI(...) xmem::Lock_Release(&xmem_spi_lock)
 extern volatile uint8_t xmem_spi_lock;
@@ -311,6 +319,11 @@ extern volatile uint8_t xmem_i2c_lock;
 #define XMEM_RELEASE_I2C(...) (void(0))
 #endif
 #endif
+#endif
+#if !defined(XMEM_LOADED)
+#include "xmem.cpp"
+#include "mainxmem.cpp"
+#define XMEM_LOADED
 #endif
 #endif
 #endif
